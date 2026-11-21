@@ -608,11 +608,16 @@ foreach ($order as $provider) {
         $reason = 'transport error: ' . substr(strip_tags($body), 0, 160);
     }
     $attempts[] = ['provider' => $provider['id'], 'error' => $reason, 'latency_ms' => $ms];
+    // Rate limits recover quickly; other failures cool down longer.
+    $cooldown = (int) $CONFIG['health_ttl'];
+    if (preg_match('/\b(402|429)\b|limit|rate|quota|too many/i', $reason)) {
+        $cooldown = 60;
+    }
     $state[$provider['id']] = [
         'last_success' => $state[$provider['id']]['last_success'] ?? null,
         'last_latency_ms' => $ms,
         'last_error' => $reason,
-        'fail_until' => time() + (int) $CONFIG['health_ttl'],
+        'fail_until' => time() + $cooldown,
     ];
     ss_state_save($RUNTIME, $state);
 }

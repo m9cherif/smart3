@@ -42,9 +42,12 @@ $config = [
 if (is_file(__DIR__ . '/keys.php')) {
     $extra = @include __DIR__ . '/keys.php';
     if (is_array($extra)) {
-        foreach ($extra as $k => $v) {
-            if (isset($config['keys'][$k]) && $v !== '') {
-                $config['keys'][$k] = $v;
+        $extraKeys = $extra['keys'] ?? $extra;
+        if (is_array($extraKeys)) {
+            foreach ($extraKeys as $k => $v) {
+                if (is_string($v) && $v !== '') {
+                    $config['keys'][$k] = $v;
+                }
             }
         }
         if (!empty($extra['router_token'])) {
