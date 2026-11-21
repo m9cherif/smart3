@@ -213,9 +213,13 @@ class AppController extends ChangeNotifier {
         : const Color(0xFF6750A4);
 
     // Initialize API services with saved configuration
+    debugPrint('AppController: Initializing services...');
     final ocrService = ocr_service.GoogleOCRService();
     final speechService = SpeechService();
+    
+    debugPrint('AppController: APIConfig.initializeServices start');
     await APIConfig.initializeServices(ocrService, speechService);
+    debugPrint('AppController: APIConfig.initializeServices done');
 
     _themeOption = nextTheme;
     _brightnessMode = nextBrightness;
@@ -223,6 +227,7 @@ class AppController extends ChangeNotifier {
     _grade = nextGrade;
     _gradeSelected = nextGradeSelected;
     _customColor = nextCustomColor;
+    debugPrint('AppController: Load complete');
     notifyListeners();
   }
 

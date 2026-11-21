@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:smart_student_ai/database_service.dart';
+import 'package:smart_student_ai/app_strings.dart';
+import 'package:smart_student_ai/firebase_auth_service.dart';
 
 class InteractiveQuizDialog extends StatefulWidget {
   const InteractiveQuizDialog({
@@ -69,7 +71,10 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Question ${_currentQuestionIndex + 1} of ${widget.questions.length}',
+                          AppStrings.of(context).quizQuestionCounter(
+                            _currentQuestionIndex + 1,
+                            widget.questions.length,
+                          ),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -78,7 +83,10 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Score: $_score/${widget.questions.length}',
+                          AppStrings.of(context).quizScoreLabel(
+                            _score,
+                            widget.questions.length,
+                          ),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
@@ -230,11 +238,11 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
                             onPressed: _canSubmit() ? _handleNextAction : null,
                             child: Text(
                               !_showAnswerForCurrent
-                                  ? 'Check Answer'
+                                  ? AppStrings.of(context).quizCheckAnswer
                                   : (_currentQuestionIndex ==
                                             widget.questions.length - 1
-                                        ? 'Finish'
-                                        : 'Next Question'),
+                                        ? AppStrings.of(context).quizFinish
+                                        : AppStrings.of(context).quizNextQuestion),
                             ),
                           ),
                         ),
@@ -251,6 +259,7 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
   }
 
   Widget _buildQuizCompleteDialog() {
+    final strings = AppStrings.of(context);
     return Dialog(
       backgroundColor: Theme.of(context).colorScheme.surface,
       child: Container(
@@ -265,25 +274,25 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
             ),
             const SizedBox(height: 20),
             Text(
-              'Quiz Complete!',
+              strings.quizComplete,
               style: Theme.of(
                 context,
               ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             Text(
-              'Your Score: $_score out of ${widget.questions.length}',
+              strings.quizYourScore(_score, widget.questions.length),
               style: Theme.of(context).textTheme.bodyLarge,
             ),
             const SizedBox(height: 24),
             Text(
               _score == widget.questions.length
-                  ? 'Perfect! You got all questions correct! 🎉'
+                  ? strings.quizPerfectFeedback
                   : _score >= widget.questions.length * 0.8
-                  ? 'Great job! 🌟'
+                  ? strings.quizGreatFeedback
                   : _score >= widget.questions.length * 0.6
-                  ? 'Good effort! 👍'
-                  : 'Keep practicing! 📚',
+                  ? strings.quizGoodFeedback
+                  : strings.quizKeepPracticing,
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -292,7 +301,7 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
               width: double.infinity,
               child: FilledButton(
                 onPressed: widget.onClose,
-                child: const Text('Close'),
+                child: Text(strings.hubClose),
               ),
             ),
           ],
@@ -325,14 +334,18 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
       if (isCorrect) {
         try {
           final result = await DatabaseService.instance.recordQuizAnswer(true);
+          
+          // Sync with Firebase
+          FirebaseAuthService().syncProgress(result.progress);
 
           if (mounted && result.xpEarned > 0) {
+            final strings = AppStrings.of(context);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
                   result.leveledUp
-                      ? 'Awesome! You leveled up! (+${result.xpEarned} XP)'
-                      : 'Correct! +${result.xpEarned} XP',
+                      ? strings.quizLevelUpMessage(result.xpEarned)
+                      : strings.quizCorrectXpMessage(result.xpEarned),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 backgroundColor: Colors.green.shade600,

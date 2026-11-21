@@ -249,9 +249,9 @@ class _ColorPickerGrid extends StatelessWidget {
   }
 
   bool _isColorClose(Color a, Color b) {
-    return (a.red - b.red).abs() < 15 &&
-        (a.green - b.green).abs() < 15 &&
-        (a.blue - b.blue).abs() < 15;
+    return ((a.r * 255).round() - (b.r * 255).round()).abs() < 15 &&
+        ((a.g * 255).round() - (b.g * 255).round()).abs() < 15 &&
+        ((a.b * 255).round() - (b.b * 255).round()).abs() < 15;
   }
 }
 
@@ -335,7 +335,7 @@ class _HueSliderPicker extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Text(
-              '#${selectedColor.value.toRadixString(16).substring(2).toUpperCase()}',
+              '#${selectedColor.toARGB32().toRadixString(16).substring(2).toUpperCase()}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 fontFamily: 'monospace',
                 fontWeight: FontWeight.w600,

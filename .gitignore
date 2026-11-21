@@ -47,3 +47,7 @@ app.*.map.json
 
 #Ignore windsurf AI rules
 .windsurfrules
+
+# Local API secrets (never commit)
+secrets.json
+

@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_timezone
   local_notifier
   printing
+  record_linux
   screen_retriever_linux
   syncfusion_pdfviewer_linux
   tray_manager

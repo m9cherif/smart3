@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_print
 import 'dart:ui';
 void main() {
   print(Color(0xFF000000).runtimeType);

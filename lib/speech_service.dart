@@ -1,33 +1,28 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:smart_student_ai/ai_service.dart';
+import 'package:smart_student_ai/app_controller.dart';
 
 class SpeechService {
-  SpeechService._internal({SpeechToText? speech}) : _speech = speech ?? SpeechToText();
+  SpeechService._internal();
   
   static final SpeechService instance = SpeechService._internal();
   
-  // Factory constructor for backward compatibility if needed, 
-  // but we prefer using .instance
-  factory SpeechService({SpeechToText? speech}) => instance;
+  // Factory constructor for backward compatibility
+  factory SpeechService() => instance;
 
-  final SpeechToText _speech;
-  bool _useWhisper = true;
-  bool _isInitialized = false;
-
-  void setUseWhisper(bool useWhisper) {
-    _useWhisper = useWhisper;
-  }
-
-  Completer<String>? _activeCompleter;
-  String _currentTranscript = '';
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _isAiRecording = false;
 
   Future<void> stop() async {
-    await _speech.stop();
-    if (_activeCompleter != null && !_activeCompleter!.isCompleted) {
-      _activeCompleter!.complete(_currentTranscript.trim());
-      _activeCompleter = null;
+    if (_isAiRecording) {
+      await _recorder.stop();
+      _isAiRecording = false;
     }
   }
 
@@ -35,111 +30,75 @@ class SpeechService {
     Duration duration = const Duration(seconds: 5),
     Locale? locale,
   }) async {
-    if (_useWhisper) {
-      // For Whisper, we need to record to a file first
-      // This is a simplified implementation - in practice, you'd use a proper audio recording library
-      // For now, return local result
-      try {
-        final localResult = await _recordWithLocalSpeech(duration: duration, locale: locale);
-        return localResult;
-      } catch (e) {
-        debugPrint('Local speech recognition failed: $e');
-      }
-    }
-    
-    // Fallback to local speech recognition
-    return await _recordWithLocalSpeech(duration: duration, locale: locale);
+    // We now strictly use OpenRouter (Whisper) for STT as requested.
+    debugPrint('Using AI Speech Recognition via OpenRouter...');
+    return await _recordWithAiSpeech(duration: duration, locale: locale);
   }
 
-  Future<String> _recordWithLocalSpeech({
+
+  Future<String> _recordWithAiSpeech({
     required Duration duration,
     required Locale? locale,
   }) async {
-    if (_speech.isListening) {
-      await _speech.stop();
-    }
-    final completer = Completer<String>();
-    _activeCompleter = completer;
-    _currentTranscript = '';
-
-    // Set up locale if provided
-    String? localeId;
-    if (locale != null) {
-      final lang = locale.languageCode;
-      if (lang == 'ar') {
-        localeId = 'ar_SA';
-      } else if (lang == 'fr') localeId = 'fr_FR';
-      else if (lang == 'en') localeId = 'en_US';
-      else localeId = lang;
+    if (await _recorder.isRecording()) {
+      await _recorder.stop();
     }
 
-    if (!_isInitialized) {
-      debugPrint('Initializing SpeechToText...');
-      try {
-        final available = await _speech.initialize(
-          onError: (error) {
-            debugPrint('Speech recognition error: ${error.errorMsg}');
-            if (!completer.isCompleted) {
-              final msg = error.errorMsg.toLowerCase();
-              if (msg.contains('not available') || msg.contains('not_implemented') || msg.contains('error_no_match')) {
-                 completer.completeError('Voice recognition is not available or supported on this system.');
-              } else {
-                 completer.completeError(error.errorMsg);
-              }
-            }
-          },
-          onStatus: (status) {
-            debugPrint('Speech recognition status: $status');
-            if (status == 'notListening' && !completer.isCompleted && _currentTranscript.isNotEmpty) {
-              completer.complete(_currentTranscript.trim());
-            }
-          },
-          debugLogging: true,
-        );
+    if (!await _recorder.hasPermission()) {
+      throw 'Microphone permission denied. Please grant permission in settings.';
+    }
 
-        if (!available) {
-          _isInitialized = false;
-          throw 'Speech recognition is not available at this time. Please check your microphone permissions and try again.';
-        }
-        _isInitialized = true;
-        debugPrint('SpeechToText initialized successfully');
-      } catch (e) {
-        _isInitialized = false;
-        debugPrint('Speech initialization exception: $e');
-        return 'Voice recognition error: $e';
+    final tempDir = await getTemporaryDirectory();
+    final String path = p.join(tempDir.path, 'dictation_${DateTime.now().millisecondsSinceEpoch}.wav');
+
+    const config = RecordConfig(
+      encoder: AudioEncoder.wav,
+      sampleRate: 16000,
+      bitRate: 128000,
+    );
+
+    _isAiRecording = true;
+    await _recorder.start(config, path: path);
+
+    debugPrint('AI Recording started: $path');
+
+
+    // Auto-stop after duration
+    Timer(duration, () async {
+      if (_isAiRecording) {
+        await stop();
       }
+    });
+
+    // Wait for the recording to finish (either by stop() or timer)
+    // We poll until _isAiRecording is false or use a more robust sync mechanism
+    while (_isAiRecording) {
+      await Future.delayed(const Duration(milliseconds: 200));
     }
 
+    debugPrint('AI Recording finished. Transcribing...');
+    
+    // Determine AppLanguage from locale
+    AppLanguage appLang = AppLanguage.english;
+    if (locale?.languageCode == 'ar') {
+      appLang = AppLanguage.arabic;
+    } else if (locale?.languageCode == 'fr') {
+      appLang = AppLanguage.french;
+    }
+
+    final transcription = await AIService.transcribeAudio(File(path), language: appLang);
+    debugPrint('AI Transcription: $transcription');
+
+    // Clean up
     try {
-      // Start listening with timeout
-      await _speech.listen(
-        listenFor: duration,
-        pauseFor: const Duration(seconds: 3),
-        localeId: localeId,
-        onResult: (result) {
-          _currentTranscript = result.recognizedWords;
-          debugPrint('Recognized: $_currentTranscript (final: ${result.finalResult})');
-          if (result.finalResult && !completer.isCompleted) {
-            completer.complete(_currentTranscript.trim());
-          }
-        },
-      );
-
-      // Backup timeout in case plugin doesn't call onResult with finalResult
-      Timer(duration + const Duration(seconds: 1), () {
-        if (!completer.isCompleted) {
-          _speech.stop();
-          completer.complete(_currentTranscript.trim());
-        }
-      });
-
-      final result = await completer.future;
-      _activeCompleter = null;
-      return result;
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
     } catch (e) {
-      _activeCompleter = null;
-      debugPrint('Speech listening error: $e');
-      return 'Error recording voice: $e';
+      debugPrint('Error deleting temp audio file: $e');
     }
+
+    return transcription;
   }
 }

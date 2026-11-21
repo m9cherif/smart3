@@ -11,10 +11,13 @@ import 'package:smart_student_ai/app_customization_panel.dart';
 import 'package:smart_student_ai/student_progress_card.dart';
 import 'package:smart_student_ai/google_ocr_service.dart';
 import 'package:smart_student_ai/ai_service.dart';
+import 'package:smart_student_ai/speech_service.dart';
 import 'package:smart_student_ai/interactive_quiz_dialog.dart';
 import 'dictation_screen.dart';
 import 'planner_screen.dart';
 import 'revision_screen.dart';
+import 'package:smart_student_ai/firebase_auth_service.dart';
+import 'package:smart_student_ai/user_model.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,15 +31,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isLoadingProgress = true;
   List<Map<String, dynamic>> _openTasks = [];
   bool _isLoadingTasks = true;
+  UserModel? _userData;
 
   // Learning Hub controllers and services
   final TextEditingController _inputTextController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
   final GoogleOCRService _ocrService = GoogleOCRService();
+  final SpeechService _speechService = SpeechService();
   bool _isProcessingImage = false;
   bool _isGeneratingSummary = false;
   bool _isGeneratingQuiz = false;
   bool _isProcessingPDF = false;
+  bool _isListening = false;
 
   late AnimationController _heroAnimationController;
   late Animation<double> _heroOpacityAnimation;
@@ -49,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.initState();
     _loadProgress();
     _loadTodayTasks();
+    _loadUserData();
     TaskEvents.instance.addListener(_loadTodayTasks);
     _initializeAnimations();
   }
@@ -74,13 +81,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         });
       }
     } catch (e) {
-      debugPrint('Error loading tasks: $e');
+      debugPrint('Error loading today tasks: $e');
       if (mounted) {
         setState(() {
           _isLoadingTasks = false;
         });
       }
     }
+  }
+
+  Future<void> _loadUserData() async {
+    final authService = FirebaseAuthService();
+    final user = await authService.currentUser;
+    if (user != null) {
+      final data = await authService.getUserData(user.uid);
+      if (mounted) {
+        setState(() {
+          _userData = data;
+        });
+      }
+    }
+  }
+
+  Future<void> _logout() async {
+    await FirebaseAuthService().signOut();
   }
 
   Future<void> _toggleTaskCompletion(int taskId, bool completed) async {
@@ -107,33 +131,34 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // Learning Hub functionality
   Future<void> _openTextDialog() async {
+    final strings = AppStrings.of(context);
     final result = await showDialog<String>(
       context: context,
       builder: (BuildContext context) {
         final controller = TextEditingController()
           ..text = _inputTextController.text;
         return AlertDialog(
-          title: const Text('Type Your Text'),
+          title: Text(strings.hubTypeYourText),
           content: SizedBox(
             width: 400,
             child: TextField(
               controller: controller,
               minLines: 6,
               maxLines: 12,
-              decoration: const InputDecoration(
-                hintText: 'Enter your text here...',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: strings.hubEnterHint,
+                border: const OutlineInputBorder(),
               ),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
+              child: Text(strings.hubCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(controller.text),
-              child: const Text('Done'),
+              child: Text(strings.hubDone),
             ),
           ],
         );
@@ -148,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _pickFile() async {
+    final strings = AppStrings.of(context);
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -165,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Processing file: ${file.path.split('/').last}'),
+              content: Text(strings.hubProcessingProgress(file.path.split('/').last)),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -182,9 +208,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Text detected successfully'),
-                duration: Duration(seconds: 3),
+              SnackBar(
+                content: Text(strings.hubDetectionSuccess),
+                duration: const Duration(seconds: 3),
               ),
             );
           }
@@ -214,6 +240,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _pickImage(ImageSource source) async {
+    final strings = AppStrings.of(context);
     try {
       final image = await _imagePicker.pickImage(source: source);
       if (image != null) {
@@ -229,7 +256,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Image processed successfully')),
+            SnackBar(content: Text(strings.hubImageSuccess)),
           );
         }
       }
@@ -246,22 +273,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _showImageSourceDialog() async {
+    final strings = AppStrings.of(context);
     final ImageSource? source = await showDialog<ImageSource>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Select Image Source'),
+          title: Text(strings.hubSelectSource),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               ListTile(
                 leading: const Icon(Icons.photo_camera),
-                title: const Text('Camera'),
+                title: Text(strings.hubCamera),
                 onTap: () => Navigator.of(context).pop(ImageSource.camera),
               ),
               ListTile(
                 leading: const Icon(Icons.photo_library),
-                title: const Text('Gallery'),
+                title: Text(strings.hubGallery),
                 onTap: () => Navigator.of(context).pop(ImageSource.gallery),
               ),
             ],
@@ -275,10 +303,54 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> _speakText() async {
+    final strings = AppStrings.of(context);
+    setState(() => _isListening = true);
+
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(strings.hubSpeakingStatus),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
+      // Record for up to 30 seconds (standard for short notes)
+      final text = await _speechService.record(
+        duration: const Duration(seconds: 30),
+        locale: AppScope.of(context).locale,
+      );
+
+      if (text.isNotEmpty && !text.startsWith('Error')) {
+        setState(() {
+          _inputTextController.text = text;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(strings.hubSpeakSuccess)),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isListening = false);
+      }
+    }
+  }
+
   Future<void> _generateSummary() async {
+    final strings = AppStrings.of(context);
     if (_inputTextController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter some text to summarize')),
+        SnackBar(content: Text(strings.hubSummarizeHint)),
       );
       return;
     }
@@ -290,6 +362,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     try {
       final summary = await AIService.generateSummary(
         _inputTextController.text,
+        language: AppScope.of(context).language,
       );
 
       if (mounted) {
@@ -299,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             return AlertDialog(
               title: Row(
                 children: [
-                  const Text('Generated Summary'),
+                  Text(strings.hubGeneratedSummary),
                   const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -311,7 +384,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
+                  child: Text(strings.hubClose),
                 ),
               ],
             );
@@ -334,10 +407,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _generateQuiz() async {
+    final strings = AppStrings.of(context);
     if (_inputTextController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter some text to generate quiz'),
+        SnackBar(
+          content: Text(strings.hubQuizHint),
         ),
       );
       return;
@@ -348,7 +422,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
 
     try {
-      final quizData = await AIService.generateQuiz(_inputTextController.text);
+      final quizData = await AIService.generateQuiz(
+        _inputTextController.text,
+        language: AppScope.of(context).language,
+      );
 
       if (mounted && quizData.isNotEmpty) {
         showDialog(
@@ -450,6 +527,43 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return;
     }
     await _loadProgress();
+  }
+
+  Future<void> _handleDictationModuleClick() async {
+    final strings = AppStrings.of(context);
+    final hubText = _inputTextController.text.trim();
+    
+    if (hubText.isEmpty) {
+      _openModule(const DictationScreen());
+      return;
+    }
+
+    final choice = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(strings.dictationImportTitle),
+        content: Text(strings.dictationImportMessage),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 0),
+            child: Text(strings.dictationImportNew),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 1),
+            child: Text(strings.dictationImportHub),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || choice == null) return;
+
+    if (choice == 1) {
+      _openModule(DictationScreen(initialText: hubText));
+    } else {
+      _openModule(const DictationScreen());
+    }
   }
 
   @override
@@ -573,11 +687,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                     ),
                                   ),
                                 ),
+                                const SizedBox(width: 8),
+                                // Logout button
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withValues(
+                                      alpha: 0.14,
+                                    ),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: IconButton(
+                                    onPressed: _logout,
+                                    tooltip: 'Logout',
+                                    icon: Icon(
+                                      Icons.logout_rounded,
+                                      color: themeSpec.heroForeground,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              strings.heroSubtitle,
+                              _userData != null 
+                                ? 'Hello, ${_userData!.name}! 👋' 
+                                : strings.heroSubtitle,
                               style: theme.textTheme.bodyLarge?.copyWith(
                                 color: colorScheme.onPrimary.withValues(
                                   alpha: 0.92,
@@ -650,7 +784,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                           ],
                                         ),
                                         child: Text(
-                                          'TASKS',
+                                          strings.hubTasksTitle,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             color: colorScheme.onPrimary,
@@ -686,7 +820,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'Study Tasks',
+                                  strings.hubStudyTasksTitle,
                                   style: theme.textTheme.headlineSmall
                                       ?.copyWith(
                                         fontWeight: FontWeight.w800,
@@ -729,18 +863,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                           size: 24,
                                         ),
                                         const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            'All tasks completed!',
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.titleMedium
-                                                ?.copyWith(
-                                                  color: colorScheme.primary,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 16,
-                                                ),
+                                          Expanded(
+                                            child: Text(
+                                              strings.hubAllTasksDone,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.titleMedium
+                                                  ?.copyWith(
+                                                    color: colorScheme.primary,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 16,
+                                                  ),
+                                            ),
                                           ),
-                                        ),
                                       ],
                                     ),
                                   )
@@ -769,7 +903,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                           ),
                                         ),
                                         child: Text(
-                                          '${_openTasks.length} PENDING',
+                                          strings.hubPendingLabel(_openTasks.length),
                                           style: TextStyle(
                                             color: Colors.orange.shade700,
                                             fontSize: 14,
@@ -883,9 +1017,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                                   // Task title
                                                   Expanded(
                                                     child: Text(
-                                                      task['title']
-                                                              as String? ??
-                                                          'Untitled',
+                                                       task['title']
+                                                               as String? ??
+                                                           strings.hubUntitledTask,
                                                       style: theme
                                                           .textTheme
                                                           .titleMedium
@@ -929,14 +1063,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                                   BorderRadius.circular(8),
                                             ),
                                             child: Text(
-                                              '+${_openTasks.length - 3} more tasks',
-                                              style: theme.textTheme.bodyLarge
-                                                  ?.copyWith(
-                                                    color: colorScheme.primary,
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 14,
-                                                  ),
-                                            ),
+                                               strings.hubMoreTasks(_openTasks.length - 3),
+                                               style: theme.textTheme.bodyLarge
+                                                   ?.copyWith(
+                                                     color: colorScheme.primary,
+                                                     fontWeight: FontWeight.w700,
+                                                     fontSize: 14,
+                                                   ),
+                                             ),
                                           ),
                                         ),
                                     ],
@@ -981,14 +1115,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
-                                'LEARNING HUB',
-                                style: TextStyle(
-                                  color: colorScheme.onPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
+                                 strings.hubLearningHubBadge,
+                                 style: TextStyle(
+                                   color: colorScheme.onPrimary,
+                                   fontSize: 14,
+                                   fontWeight: FontWeight.w800,
+                                   letterSpacing: 1.2,
+                                 ),
+                               ),
                             ),
                             const Spacer(),
                             Icon(
@@ -1013,12 +1147,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
-                              Text(
-                                'Input Your Text',
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+                               Text(
+                                 strings.hubTypeYourText,
+                                 style: theme.textTheme.titleLarge?.copyWith(
+                                   fontWeight: FontWeight.w700,
+                                 ),
+                               ),
                               const SizedBox(height: 12),
                               TextField(
                                 controller: _inputTextController,
@@ -1026,9 +1160,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 maxLines: 6,
                                 enabled: !_isProcessingPDF,
                                 decoration: InputDecoration(
-                                  hintText: _isProcessingPDF
-                                      ? 'Processing PDF with AI...'
-                                      : 'Enter or paste your text here...',
+                                   hintText: _isProcessingPDF
+                                       ? strings.hubProcessingPDF
+                                       : strings.hubEnterHint,
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -1050,14 +1184,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                         ? null
                                         : _openTextDialog,
                                     icon: const Icon(Icons.edit_note_rounded),
-                                    label: const Text('Type Text'),
+                                     label: Text(strings.hubTypeTextButton),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: _isProcessingImage || _isProcessingPDF
                                         ? null
                                         : _pickFile,
                                     icon: const Icon(Icons.folder_open_rounded),
-                                    label: const Text('Upload File'),
+                                     label: Text(strings.hubUploadFileButton),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: _isProcessingImage || _isProcessingPDF
@@ -1068,13 +1202,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                         : const Icon(
                                             Icons.photo_camera_outlined,
                                           ),
-                                    label: Text(
-                                      _isProcessingPDF
-                                          ? 'Processing...'
-                                          : 'Scan Image',
-                                    ),
+                                     label: Text(
+                                       _isProcessingPDF
+                                           ? strings.hubProcessing
+                                           : strings.hubScanImageButton,
+                                     ),
                                   ),
-
+                                  OutlinedButton.icon(
+                                    onPressed: _isProcessingImage || _isProcessingPDF || _isListening
+                                        ? null
+                                        : _speakText,
+                                    icon: _isListening
+                                        ? const Icon(Icons.graphic_eq_rounded)
+                                        : const Icon(Icons.mic_none_rounded),
+                                    label: Text(strings.hubSpeakTextButton),
+                                  ),
                                 ],
                               ),
                             ],
@@ -1087,35 +1229,38 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         Row(
                           children: <Widget>[
                             Expanded(
-                              child: _GenerationButtonSection(
-                                title: 'Summary',
-                                subtitle: 'Get AI-powered summaries',
-                                icon: Icons.summarize_rounded,
-                                color: colorScheme.primary,
-                                isLoading: _isGeneratingSummary,
-                                onGenerate: _generateSummary,
-                              ),
+                                child: _GenerationButtonSection(
+                                  title: strings.hubSummaryTitle,
+                                  subtitle: strings.hubSummarySubtitle,
+                                  icon: Icons.summarize_rounded,
+                                  color: colorScheme.primary,
+                                  isLoading: _isGeneratingSummary,
+                                  onGenerate: _generateSummary,
+                                  actionLabel: strings.hubGenerateSummaryAction,
+                                ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: _GenerationButtonSection(
-                                title: 'Quiz',
-                                subtitle: 'Test your knowledge',
-                                icon: Icons.quiz_rounded,
-                                color: colorScheme.tertiary,
-                                isLoading: _isGeneratingQuiz,
-                                onGenerate: _generateQuiz,
-                              ),
+                                child: _GenerationButtonSection(
+                                  title: strings.hubQuizTitle,
+                                  subtitle: strings.hubQuizSubtitle,
+                                  icon: Icons.quiz_rounded,
+                                  color: colorScheme.tertiary,
+                                  isLoading: _isGeneratingQuiz,
+                                  onGenerate: _generateQuiz,
+                                  actionLabel: strings.hubGenerateQuizAction,
+                                ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: _GenerationButtonSection(
-                                title: 'Dictation',
-                                subtitle: 'Practice pronunciation',
-                                icon: Icons.record_voice_over_rounded,
-                                color: colorScheme.secondary,
-                                onGenerate: () => _openModule(features[2].page),
-                              ),
+                                child: _GenerationButtonSection(
+                                  title: strings.hubDictationTitle,
+                                  subtitle: strings.hubDictationSubtitle,
+                                   icon: Icons.record_voice_over_rounded,
+                                  color: colorScheme.secondary,
+                                  onGenerate: _handleDictationModuleClick,
+                                  actionLabel: strings.hubPracticeDictationAction,
+                                ),
                             ),
                           ],
                         ),
@@ -1364,6 +1509,7 @@ class _GenerationButtonSection extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.onGenerate,
+    required this.actionLabel,
     this.isLoading = false,
   });
 
@@ -1372,6 +1518,7 @@ class _GenerationButtonSection extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onGenerate;
+  final String actionLabel;
   final bool isLoading;
 
   @override
@@ -1439,13 +1586,7 @@ class _GenerationButtonSection extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Icon(icon, size: 18),
-                  label: Text(
-                    title == 'Summary'
-                        ? 'Generate Summary'
-                        : title == 'Quiz'
-                        ? 'Generate Quiz'
-                        : 'Practice Dictation',
-                  ),
+                  label: Text(actionLabel),
                   style: FilledButton.styleFrom(
                     backgroundColor: color,
                     foregroundColor: colorScheme.onPrimary,

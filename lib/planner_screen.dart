@@ -453,7 +453,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
                           dueDate: testTime.add(const Duration(seconds: 5)), // Just after
                           reminderMinutes: 0, // Remind exactly at testTime
                         );
-                        if (mounted) {
+                        if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(success 

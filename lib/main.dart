@@ -10,33 +10,15 @@ import 'package:smart_student_ai/tray_service.dart';
 import 'package:smart_student_ai/database_service.dart';
 import 'launch_gate.dart';
 
-Future<void> main() async {
+void main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
+    
+    // Force the app to open and stay in horizontal (landscape) mode
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    
-    debugPrint('Main: Starting service initializations...');
-    
-    await AIService.initialize();
-    debugPrint('Main: AIService initialized');
-    
-    await NotificationService.instance.initialize();
-    debugPrint('Main: NotificationService initialized');
-    
-    await TrayService.instance.initialize();
-    debugPrint('Main: TrayService initialized');
-    
-    // Pre-initialize database to catch storage errors early
-    try {
-      await DatabaseService.instance.database;
-      debugPrint('Main: DatabaseService initialized');
-    } catch (dbError) {
-      debugPrint('Main: Database initialization failed: $dbError');
-      // We don't crash here, but we've logged it
-    }
 
     runApp(const SmartStudentApp());
   } catch (e, stack) {
@@ -52,6 +34,30 @@ Future<void> main() async {
   }
 }
 
+Future<void> _initializeBackgroundServices() async {
+  try {
+    debugPrint('Main: Starting background service initializations...');
+    
+    // Core orientations are now handled in main() for immediate effect
+    
+
+    // We run these in parallel and catch any issues per service
+    await Future.wait([
+      AIService.initialize().catchError((e) => debugPrint('AIService init failed: $e')),
+      NotificationService.instance.initialize().catchError((e) => debugPrint('NotificationService init failed: $e')),
+      TrayService.instance.initialize().catchError((e) => debugPrint('TrayService init failed: $e')),
+      DatabaseService.instance.initialize().catchError((e) => debugPrint('Database init failed: $e')),
+    ]).timeout(const Duration(seconds: 10), onTimeout: () {
+      debugPrint('Main: Background services initialization timed out after 10s');
+      return [];
+    });
+    
+    debugPrint('Main: Background services initialization completed.');
+  } catch (e) {
+    debugPrint('Main: Background service initialization threw an error: $e');
+  }
+}
+
 class SmartStudentApp extends StatefulWidget {
   const SmartStudentApp({super.key});
 
@@ -60,13 +66,34 @@ class SmartStudentApp extends StatefulWidget {
 }
 
 class _SmartStudentAppState extends State<SmartStudentApp> {
+  late final Future<void> _initFuture;
   final AppController _controller = AppController();
-  late final Future<void> _loadFuture;
 
   @override
   void initState() {
     super.initState();
-    _loadFuture = _controller.load();
+    _initFuture = _fullInitialization();
+  }
+
+  Future<void> _fullInitialization() async {
+    try {
+      // 1. Core platform readiness
+      debugPrint('App: Starting full initialization...');
+      
+      // 2. Start all horizontal services in parallel for maximum speed
+      await Future.wait([
+        // SharedPreferences and Controller state
+        _controller.load(),
+        
+        // Horizontal background services
+        _initializeBackgroundServices(),
+      ]);
+      
+      debugPrint('App: Full initialization completed.');
+    } catch (e) {
+      debugPrint('App: Error during initialization sequence: $e');
+      // We continue anyway and let UI components handle their own error states
+    }
   }
 
   @override
@@ -94,7 +121,7 @@ class _SmartStudentAppState extends State<SmartStudentApp> {
             ],
             localizationsDelegates: GlobalMaterialLocalizations.delegates,
             home: FutureBuilder<void>(
-              future: _loadFuture,
+              future: _initFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
                   return const _LaunchLoadingScreen();

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart' as sqlite_mobile;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class DatabaseService {
@@ -16,29 +17,64 @@ class DatabaseService {
   DatabaseFactory? _databaseFactory;
 
   bool get isReady => _isInitialized;
+  Future<void>? _initFuture;
+
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    _initFuture ??= _doInitialize();
+    return _initFuture!;
+  }
+
+  Future<void> _doInitialize() async {
+    try {
+      // Warm up the database and ensure it doesn't hang the app startup
+      await database.timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('DatabaseService: Initialization warning: $e');
+      // We don't rethrow here to prevent blocking other services,
+      // but we return _initFuture to null to allow for subsequent retry attempts.
+      _initFuture = null;
+    }
+  }
+
+  Future<Database>? _dbFuture;
 
   Future<Database> get database async {
     if (_database != null) {
       return _database!;
     }
-    _database = await _initDatabase();
+    _dbFuture ??= _initDatabase();
+    _database = await _dbFuture;
     return _database!;
   }
 
   Future<Database> _initDatabase() async {
     try {
+      debugPrint('DatabaseService: Resolving factory and path...');
       final factory = await _resolveDatabaseFactory();
       final path = await _resolveDatabasePath();
+      debugPrint('DatabaseService: Using path: $path');
 
       final db = await factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
           version: 5,
+          onConfigure: (db) async {
+            debugPrint('DatabaseService: Configuring database (WAL)...');
+            try {
+              // Some drivers require rawQuery for PRAGMAs that return results
+              await db.rawQuery('PRAGMA journal_mode=WAL');
+            } catch (e) {
+              debugPrint('DatabaseService: WAL configuration failed (ignoring): $e');
+            }
+          },
           onCreate: (db, version) async {
+            debugPrint('DatabaseService: Creating tables (new database)...');
             await _createTaskTable(db);
             await _createLearningTables(db);
           },
           onUpgrade: (db, oldVersion, newVersion) async {
+            debugPrint('DatabaseService: Upgrading from $oldVersion to $newVersion...');
             if (oldVersion < 2) {
               await db.execute('ALTER TABLE tasks ADD COLUMN dueDate TEXT');
               await db.execute(
@@ -65,9 +101,12 @@ class DatabaseService {
         ),
       );
       _isInitialized = true;
+      debugPrint('DatabaseService: Initialization successful');
       return db;
-    } catch (e) {
+    } catch (e, stack) {
       debugPrint('DatabaseService: Initialization failed: $e');
+      debugPrint(stack.toString());
+      _dbFuture = null; // Clear so subsequent calls can try again
       rethrow;
     }
   }
@@ -169,7 +208,7 @@ class DatabaseService {
         case TargetPlatform.android:
         case TargetPlatform.iOS:
         case TargetPlatform.macOS:
-          _databaseFactory = databaseFactory;
+          _databaseFactory = sqlite_mobile.databaseFactory;
           return _databaseFactory!;
         case TargetPlatform.fuchsia:
           throw UnsupportedError(
@@ -198,7 +237,7 @@ class DatabaseService {
         case TargetPlatform.android:
         case TargetPlatform.iOS:
         case TargetPlatform.macOS:
-          return join(await getDatabasesPath(), 'planner.db');
+          return join(await sqlite_mobile.getDatabasesPath(), 'planner.db');
         case TargetPlatform.fuchsia:
           throw UnsupportedError(
             'Study Planner is not supported on this platform.',

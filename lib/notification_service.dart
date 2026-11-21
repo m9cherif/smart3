@@ -16,8 +16,15 @@ class NotificationService {
   final List<_DesktopReminder> _desktopReminders = [];
   Timer? _desktopTimer;
   bool _isInitialized = false;
+  Future<void>? _initFuture;
 
   Future<void> initialize() async {
+    if (_isInitialized) return;
+    _initFuture ??= _doInitialize();
+    return _initFuture!;
+  }
+
+  Future<void> _doInitialize() async {
     if (_isInitialized) return;
     
     try {
@@ -25,7 +32,9 @@ class NotificationService {
 
       String timeZoneName = 'UTC';
       try {
-        final result = await FlutterTimezone.getLocalTimezone();
+        final result = await FlutterTimezone.getLocalTimezone().timeout(
+          const Duration(seconds: 2),
+        );
         final raw = result.toString();
         debugPrint('NotificationService: raw timezone result = "$raw"');
 
@@ -40,7 +49,7 @@ class NotificationService {
           }
         }
       } catch (e) {
-        debugPrint('NotificationService: Failed to get timezone: $e');
+        debugPrint('NotificationService: Failed to get timezone or timeout: $e');
       }
 
       try {
@@ -77,8 +86,13 @@ class NotificationService {
         final androidPlugin = _notifications.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
         if (androidPlugin != null) {
+          debugPrint('NotificationService: Requesting Android permissions...');
           await androidPlugin.requestNotificationsPermission();
-          await androidPlugin.requestExactAlarmsPermission();
+          try {
+            await androidPlugin.requestExactAlarmsPermission();
+          } catch (e) {
+            debugPrint('NotificationService: Error requesting exact alarm permission: $e');
+          }
         }
       }
 
@@ -118,24 +132,53 @@ class NotificationService {
       return true;
     }
 
-    await _notifications.zonedSchedule(
-      id,
-      'Task Reminder',
-      'Your task "$title" is due soon!',
-      tz.TZDateTime.from(scheduledDate, tz.local),
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'task_reminders',
-          'Task Reminders',
-          importance: Importance.max,
-          priority: Priority.high,
+    try {
+      await _notifications.zonedSchedule(
+        id,
+        'Task Reminder',
+        'Your task "$title" is due soon!',
+        tz.TZDateTime.from(scheduledDate, tz.local),
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'task_reminders',
+            'Task Reminders',
+            channelDescription: 'Notifications for student tasks and reminders',
+            importance: Importance.max,
+            priority: Priority.high,
+            showWhen: true,
+          ),
+          iOS: DarwinNotificationDetails(),
         ),
-        iOS: DarwinNotificationDetails(),
-      ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-    );
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      debugPrint('NotificationService: Scheduled exact reminder for Android at $scheduledDate (ID: $id)');
+    } catch (e) {
+      debugPrint('NotificationService: Failed to schedule exact reminder, falling back to inexact: $e');
+      // Fallback to inexact scheduling if exact fails (common on Android 12+ if permission not granted)
+      await _notifications.zonedSchedule(
+        id,
+        'Task Reminder',
+        'Your task "$title" is due soon!',
+        tz.TZDateTime.from(scheduledDate, tz.local),
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'task_reminders',
+            'Task Reminders',
+            channelDescription: 'Notifications for student tasks and reminders',
+            importance: Importance.max,
+            priority: Priority.high,
+            showWhen: true,
+          ),
+          iOS: DarwinNotificationDetails(),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      debugPrint('NotificationService: Scheduled inexact reminder for Android at $scheduledDate (ID: $id)');
+    }
     return true;
   }
 

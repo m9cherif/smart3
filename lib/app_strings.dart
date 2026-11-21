@@ -11,11 +11,7 @@ class AppStrings {
     return AppStrings(AppScope.of(context).language);
   }
 
-  String get appName => _pick(
-    en: 'Smart Student AI',
-    fr: 'IA Étudiant Intelligent',
-    ar: 'طالب ذكي ذكاء اصطناعي',
-  );
+  String get appName => 'Smart Student AI';
 
   String get heroBadge => _pick(
     en: '',
@@ -23,7 +19,7 @@ class AppStrings {
     ar: '',
   );
 
-  String get heroTitle => _pick(en: 'Smart Student AI', fr: 'IA Étudiant Intelligent', ar: 'طالب ذكي ذكاء اصطناعي');
+  String get heroTitle => 'Smart Student AI';
 
   String get heroSubtitle => _pick(
     en: 'Your intelligent companion for academic success.',
@@ -38,7 +34,7 @@ class AppStrings {
   );
 
   String get metricThemes =>
-      _pick(en: '3 bold themes', fr: '3 themes forts', ar: '3 سمات قوية');
+      _pick(en: '3 themes', fr: '3 thèmes', ar: '3 سمات');
 
   String get metricLanguages =>
       _pick(en: '3 app languages', fr: '3 langues', ar: '3 لغات');
@@ -52,7 +48,7 @@ class AppStrings {
   String get customizeWorkspaceSubtitle => _pick(
     en: 'Switch theme, brightness and language instantly. Your choices stay saved for the next launch.',
     fr: 'Change le theme, la luminosite et la langue instantanement. Les choix restent enregistres.',
-    ar: 'بدّل السمة والسطوع واللغة فوراً. يتم حفظ اختياراتك للمرة القادمة.',
+    ar: 'بدّل السمة والسطوع واللغة. يتم حفظ اختياراتك.',
   );
 
   String get themeSectionTitle =>
@@ -78,18 +74,18 @@ class AppStrings {
 
 
   String get accountLabel =>
-      _pick(en: 'Account', fr: 'Compte', ar: '??????');
+      _pick(en: 'Account', fr: 'Compte', ar: 'الحساب');
 
   String get accountGuest => _pick(
     en: 'Anonymous user',
     fr: 'Utilisateur anonyme',
-    ar: '?????? ?????',
+    ar: 'مستخدم مجهول',
   );
 
   String get logoutLabel => _pick(
     en: 'Logout',
     fr: 'Se deconnecter',
-    ar: '????? ??????',
+    ar: 'تسجيل الخروج',
   );
 
 
@@ -213,6 +209,30 @@ class AppStrings {
 
   String get dictationBadge =>
       _pick(en: 'OCR + speech', fr: 'OCR + voix', ar: 'OCR + صوت');
+
+  String get dictationImportTitle => _pick(
+    en: 'Use Hub Text?',
+    fr: 'Utiliser le texte du Hub ?',
+    ar: 'استخدام نص المركز؟',
+  );
+
+  String get dictationImportMessage => _pick(
+    en: 'Do you want to use the text currently in your Learning Hub, or start with a new input?',
+    fr: 'Voulez-vous utiliser le texte actuel du Hub d\'apprentissage ou commencer avec une nouvelle saisie ?',
+    ar: 'هل تريد استخدام النص الموجود حالياً في مركز التعلم، أم البدء بمدخلات جديدة؟',
+  );
+
+  String get dictationImportNew => _pick(
+    en: 'New Input',
+    fr: 'Nouvelle saisie',
+    ar: 'مدخلات جديدة',
+  );
+
+  String get dictationImportHub => _pick(
+    en: 'Use Hub Text',
+    fr: 'Utiliser le texte du Hub',
+    ar: 'استخدام نص المركز',
+  );
 
   String get dictationFileNotFound => _pick(
     en: 'Selected file not found',
@@ -757,6 +777,318 @@ class AppStrings {
     en: 'Strong read-through. The spoken passage matches cleanly.',
     fr: 'Lecture solide. Le texte lu correspond clairement au texte attendu.',
     ar: 'قراءة قوية. النص المنطوق يطابق النص المتوقع بشكل واضح.',
+  );
+
+  String get hubTypeYourText => _pick(
+    en: 'Input Your Text',
+    fr: 'Entrez votre texte',
+    ar: 'أدخل نصك',
+  );
+
+  String get hubLearningHubBadge => _pick(
+    en: 'LEARNING HUB',
+    fr: 'HUB D\'APPRENTISSAGE',
+    ar: 'مركز التعلم',
+  );
+
+  String get hubScanImageButton => _pick(
+    en: 'Scan Image',
+    fr: 'Scanner l\'image',
+    ar: 'مسح صورة',
+  );
+
+  String get hubUploadFileButton => _pick(
+    en: 'Upload File',
+    fr: 'Télécharger le fichier',
+    ar: 'تحميل ملف',
+  );
+
+  String get hubTypeTextButton => _pick(
+    en: 'Type Text',
+    fr: 'Saisir le texte',
+    ar: 'كتابة نص',
+  );
+
+  String get hubEnterHint => _pick(
+    en: 'Enter or paste your text here...',
+    fr: 'Entrez ou collez votre texte ici...',
+    ar: 'أدخل أو الصق نصك هنا...',
+  );
+  
+  String get hubSpeakTextButton => _pick(
+    en: 'Speak Text',
+    fr: 'Parler le texte',
+    ar: 'التحدث بنص',
+  );
+
+  String get hubSpeakingStatus => _pick(
+    en: 'Listening... Speak your notes clearly.',
+    fr: 'Ecoute... Enonce tes notes clairement.',
+    ar: 'جاري الاستماع... تحدث بوضوح.',
+  );
+
+  String get hubSpeakSuccess => _pick(
+    en: 'Speech transcribed successfully',
+    fr: 'Parole transcrite avec succès',
+    ar: 'تم نسخ الكلام بنجاح',
+  );
+
+  String get hubCancel => _pick(
+    en: 'Cancel',
+    fr: 'Annuler',
+    ar: 'إلغاء',
+  );
+
+  String get hubDone => _pick(
+    en: 'Done',
+    fr: 'Terminé',
+    ar: 'تم',
+  );
+
+  String hubProcessingProgress(String filename) => _pick(
+    en: 'Processing file: $filename',
+    fr: 'Traitement du fichier : $filename',
+    ar: 'جاري معالجة الملف: $filename',
+  );
+
+  String get hubDetectionSuccess => _pick(
+    en: 'Text detected successfully',
+    fr: 'Texte détecté avec succès',
+    ar: 'تم اكتشاف النص بنجاح',
+  );
+
+  String get hubImageSuccess => _pick(
+    en: 'Image processed successfully',
+    fr: 'Image traitée avec succès',
+    ar: 'تمت معالجة الصورة بنجاح',
+  );
+
+  String hubImageError(String e) => _pick(
+    en: 'Error processing image: $e',
+    fr: 'Erreur de traitement d image : $e',
+    ar: 'خطأ في معالجة الصورة: $e',
+  );
+
+  String get hubProcessing => _pick(
+    en: 'Processing...',
+    fr: 'Traitement...',
+    ar: 'جاري المعالجة...',
+  );
+
+  String get hubProcessingPDF => _pick(
+    en: 'Processing PDF with AI...',
+    fr: 'Traitement du PDF par IA...',
+    ar: 'جاري معالجة PDF بالذكاء الاصطناعي...',
+  );
+
+  String get hubUntitledTask => _pick(
+    en: 'Untitled',
+    fr: 'Sans titre',
+    ar: 'بدون عنوان',
+  );
+
+  String get hubSelectSource => _pick(
+    en: 'Select Image Source',
+    fr: 'Sélectionner la source de l image',
+    ar: 'اختر مصدر الصورة',
+  );
+
+  String get hubCamera => _pick(
+    en: 'Camera',
+    fr: 'Caméra',
+    ar: 'الكاميرا',
+  );
+
+  String get hubGallery => _pick(
+    en: 'Gallery',
+    fr: 'Galerie',
+    ar: 'المعرض',
+  );
+
+  String get hubSummarizeHint => _pick(
+    en: 'Please enter some text to summarize',
+    fr: 'Veuillez saisir un texte à résumer',
+    ar: 'يرجى إدخال نص لتلخيصه',
+  );
+
+  String get hubGeneratedSummary => _pick(
+    en: 'Generated Summary',
+    fr: 'Résumé généré',
+    ar: 'الملخص الناتج',
+  );
+
+  String get hubClose => _pick(
+    en: 'Close',
+    fr: 'Fermer',
+    ar: 'إغلاق',
+  );
+
+  String get hubQuizHint => _pick(
+    en: 'Please enter some text to generate quiz',
+    fr: 'Veuillez saisir un texte pour générer un quiz',
+    ar: 'يرجى إدخال نص لإنشاء اختبار',
+  );
+
+  String get hubTasksTitle => _pick(
+    en: 'TASKS',
+    fr: 'TÂCHES',
+    ar: 'المهام',
+  );
+
+  String get hubStudyTasksTitle => _pick(
+    en: 'Study Tasks',
+    fr: 'Tâches d étude',
+    ar: 'مهام الدراسة',
+  );
+
+  String hubMoreTasks(int count) => _pick(
+    en: '+$count more tasks',
+    fr: '+$count autres tâches',
+    ar: '+$count مهام إضافية',
+  );
+
+  String get hubAllTasksDone => _pick(
+    en: 'All tasks completed!',
+    fr: 'Toutes les tâches sont terminées !',
+    ar: 'تم إكمال جميع المهام!',
+  );
+
+  String hubPendingLabel(int count) => _pick(
+    en: '$count PENDING',
+    fr: '$count EN ATTENTE',
+    ar: '$count قيد الانتظار',
+  );
+
+  String quizQuestionCounter(int current, int total) => _pick(
+    en: 'Question $current of $total',
+    fr: 'Question $current sur $total',
+    ar: 'السؤال $current من $total',
+  );
+
+  String quizScoreLabel(int score, int total) => _pick(
+    en: 'Score: $score/$total',
+    fr: 'Score : $score/$total',
+    ar: 'النتيجة: $score/$total',
+  );
+
+  String get quizCheckAnswer => _pick(
+    en: 'Check Answer',
+    fr: 'Vérifier la réponse',
+    ar: 'تحقق من الإجابة',
+  );
+
+  String get quizFinish => _pick(
+    en: 'Finish',
+    fr: 'Terminer',
+    ar: 'إنهاء',
+  );
+
+  String get quizNextQuestion => _pick(
+    en: 'Next Question',
+    fr: 'Question suivante',
+    ar: 'السؤال التالي',
+  );
+
+  String get quizComplete => _pick(
+    en: 'Quiz Complete!',
+    fr: 'Quiz terminé !',
+    ar: 'اكتمل الاختبار!',
+  );
+
+  String quizYourScore(int score, int total) => _pick(
+    en: 'Your Score: $score out of $total',
+    fr: 'Votre score : $score sur $total',
+    ar: 'نتيجتك: $score من $total',
+  );
+
+  String get quizPerfectFeedback => _pick(
+    en: 'Perfect! You got all questions correct! 🎉',
+    fr: 'Parfait ! Vous avez répondu correctement à toutes les questions ! 🎉',
+    ar: 'ممتاز! لقد أجبت على جميع الأسئلة بشكل صحيح! 🎉',
+  );
+
+  String get quizGreatFeedback => _pick(
+    en: 'Great job! 🌟',
+    fr: 'Beau travail ! 🌟',
+    ar: 'عمل رائع! 🌟',
+  );
+
+  String get quizGoodFeedback => _pick(
+    en: 'Good effort! 👍',
+    fr: 'Bon effort ! 👍',
+    ar: 'جهد جيد! 👍',
+  );
+
+  String get quizKeepPracticing => _pick(
+    en: 'Keep practicing! 📚',
+    fr: 'Continuez à vous entraîner ! 📚',
+    ar: 'واصل التدريب! 📚',
+  );
+
+  String quizLevelUpMessage(int xp) => _pick(
+    en: 'Awesome! You leveled up! (+$xp XP)',
+    fr: 'Génial ! Vous avez monté de niveau ! (+$xp XP)',
+    ar: 'رائع! لقد ارتفع مستواك! (+$xp XP)',
+  );
+
+  String quizCorrectXpMessage(int xp) => _pick(
+    en: 'Correct! +$xp XP',
+    fr: 'Correct ! +$xp XP',
+    ar: 'صحيح! +$xp XP',
+  );
+
+  String get hubSummaryTitle => _pick(
+    en: 'Summary',
+    fr: 'Résumé',
+    ar: 'ملخص',
+  );
+
+  String get hubSummarySubtitle => _pick(
+    en: 'Get AI-powered summaries',
+    fr: 'Obtenez des résumés par IA',
+    ar: 'احصل على ملخصات بالذكاء الاصطناعي',
+  );
+
+  String get hubQuizTitle => _pick(
+    en: 'Quiz',
+    fr: 'Quiz',
+    ar: 'اختبار',
+  );
+
+  String get hubQuizSubtitle => _pick(
+    en: 'Test your knowledge',
+    fr: 'Testez vos connaissances',
+    ar: 'اختبر معرفتك',
+  );
+
+  String get hubDictationTitle => _pick(
+    en: 'Dictation',
+    fr: 'Dictée',
+    ar: 'إملاء',
+  );
+
+  String get hubDictationSubtitle => _pick(
+    en: 'Practice pronunciation',
+    fr: 'Pratiquez la prononciation',
+    ar: 'تدرب على النطق',
+  );
+
+  String get hubGenerateSummaryAction => _pick(
+    en: 'Generate Summary',
+    fr: 'Générer le résumé',
+    ar: 'إنشاء ملخص',
+  );
+
+  String get hubGenerateQuizAction => _pick(
+    en: 'Generate Quiz',
+    fr: 'Générer le quiz',
+    ar: 'إنشاء اختبار',
+  );
+
+  String get hubPracticeDictationAction => _pick(
+    en: 'Practice Dictation',
+    fr: 'Pratiquer la dictée',
+    ar: 'ممارسة الإملاء',
   );
 
   String _pick({required String en, required String fr, required String ar}) {

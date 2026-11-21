@@ -9,6 +9,7 @@ import 'package:smart_student_ai/text_normalizer.dart';
 import 'package:smart_student_ai/database_service.dart';
 import 'package:smart_student_ai/app_customization_panel.dart';
 import 'package:smart_student_ai/student_progress_card.dart';
+import 'package:smart_student_ai/firebase_auth_service.dart';
 
 part 'revision_question_bank.dart';
 
@@ -403,6 +404,9 @@ class _RevisionScreenState extends State<RevisionScreen> {
       setState(() {
         _progress = result.progress;
       });
+      
+      // Sync with Firebase
+      FirebaseAuthService().syncProgress(result.progress);
 
       if (result.xpEarned > 0 || result.leveledUp) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -444,6 +448,9 @@ class _RevisionScreenState extends State<RevisionScreen> {
       final updatedSessions = _sessionsCompleted + 1;
       await preferences.setInt(_bestScoreKey, updatedBestScore);
       await preferences.setInt(_sessionsKey, updatedSessions);
+      
+      // Sync with Firebase
+      await FirebaseAuthService().updateBestScore(updatedBestScore);
       if (!mounted) {
         return;
       }

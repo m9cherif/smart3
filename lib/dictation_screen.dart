@@ -13,9 +13,11 @@ import 'package:smart_student_ai/database_service.dart';
 import 'package:smart_student_ai/speech_service.dart';
 import 'package:smart_student_ai/app_customization_panel.dart';
 import 'package:smart_student_ai/ai_service.dart';
+import 'package:smart_student_ai/firebase_auth_service.dart';
 
 class DictationScreen extends StatefulWidget {
-  const DictationScreen({super.key});
+  final String? initialText;
+  const DictationScreen({super.key, this.initialText});
 
   @override
   State<DictationScreen> createState() => _DictationScreenState();
@@ -32,12 +34,26 @@ class _DictationScreenState extends State<DictationScreen> {
   String _statusMessage = '';
   bool _isProcessingImage = false;
   bool _isRecording = false;
+  bool _isFromHub = false;
   DictationAnalysis? _analysis;
   Future<String>? _currentOCRTask;
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _sourceText = widget.initialText!;
+      _manualTextController.text = widget.initialText!;
+      _isFromHub = true;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.initialText != null && widget.initialText!.isNotEmpty && _statusMessage.isEmpty) {
+      _statusMessage = AppStrings.of(context).dictationPassageLoaded;
+    }
   }
 
   @override
@@ -188,6 +204,7 @@ class _DictationScreenState extends State<DictationScreen> {
 
       setState(() {
         _sourceText = text;
+        _isFromHub = false;
         _spokenText = '';
         _analysis = null;
         _statusMessage = text.isEmpty
@@ -299,6 +316,7 @@ class _DictationScreenState extends State<DictationScreen> {
   void _resetSession() {
     setState(() {
       _sourceText = '';
+      _isFromHub = false;
       _spokenText = '';
       _analysis = null;
       _statusMessage = '';
@@ -348,6 +366,7 @@ class _DictationScreenState extends State<DictationScreen> {
     final normalizedText = submittedText.trim();
     setState(() {
       _sourceText = normalizedText;
+      _isFromHub = false;
       _spokenText = '';
       _analysis = null;
       _statusMessage = normalizedText.isEmpty
@@ -360,7 +379,7 @@ class _DictationScreenState extends State<DictationScreen> {
     final strings = AppStrings.of(context);
 
     try {
-      await DatabaseService.instance.recordDictationSession(
+      final result = await DatabaseService.instance.recordDictationSession(
         sourceText: _sourceText.trim(),
         spokenText: _spokenText.trim(),
         accuracy: analysis.accuracy,
@@ -369,6 +388,10 @@ class _DictationScreenState extends State<DictationScreen> {
         extraWords: analysis.extraWords,
         mismatchedPairs: analysis.mismatchedPairs,
       );
+      
+      // Sync with Firebase
+      FirebaseAuthService().syncProgress(result.progress);
+      
       if (!mounted) {
         return;
       }
@@ -405,13 +428,13 @@ class _DictationScreenState extends State<DictationScreen> {
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-        children: <Widget>[
+        children: [
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
+                children: [
                   Text(
                     strings.dictationCardTitle,
                     style: theme.textTheme.titleLarge,
@@ -425,12 +448,12 @@ class _DictationScreenState extends State<DictationScreen> {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  if (_isProcessingImage || _isRecording) ...<Widget>[
+                  if (_isProcessingImage || _isRecording) ...[
                     const SizedBox(height: 16),
                     Row(
-                      children: <Widget>[
-                        Expanded(child: LinearProgressIndicator(minHeight: 8)),
-                        if (_isProcessingImage) ...<Widget>[
+                      children: [
+                        Expanded(child: const LinearProgressIndicator(minHeight: 8)),
+                        if (_isProcessingImage) ...[
                           const SizedBox(width: 12),
                           TextButton.icon(
                             onPressed: _cancelOCRProcessing,
@@ -447,57 +470,60 @@ class _DictationScreenState extends State<DictationScreen> {
                       ],
                     ),
                   ],
-                  const SizedBox(height: 18),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: <Widget>[
-                      ElevatedButton.icon(
-                        onPressed: _isProcessingImage
-                            ? null
-                            : _openManualTextEntry,
-                        icon: const Icon(Icons.edit_note_rounded),
-                        label: Text(strings.dictationManualEntry),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _isProcessingImage
-                            ? null
-                            : _loadTextFromFile,
-                        icon: const Icon(Icons.folder_open_rounded),
-                        label: Text(strings.dictationFile),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _isProcessingImage
-                            ? null
-                            : () => _loadTextFromImage(ImageSource.camera),
-                        icon: const Icon(Icons.photo_camera_outlined),
-                        label: Text(strings.dictationCamera),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _isProcessingImage
-                            ? null
-                            : () => _loadTextFromImage(ImageSource.gallery),
-                        icon: const Icon(Icons.photo_library_outlined),
-                        label: Text(strings.dictationGallery),
-                      ),
-                       FilledButton.tonalIcon(
-                        onPressed: _isRecording ? _stopRecording : _recordSpeech,
-                        icon: Icon(
-                          _isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
+                  if (!_isFromHub) ...[
+                    const SizedBox(height: 18),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _isProcessingImage
+                              ? null
+                              : _openManualTextEntry,
+                          icon: const Icon(Icons.edit_note_rounded),
+                          label: Text(strings.dictationManualEntry),
                         ),
-                        label: Text(
-                          _isRecording
-                              ? strings.dictationStopRecording
-                              : strings.dictationRecord,
+                        OutlinedButton.icon(
+                          onPressed: _isProcessingImage
+                              ? null
+                              : _loadTextFromFile,
+                          icon: const Icon(Icons.folder_open_rounded),
+                          label: Text(strings.dictationFile),
                         ),
-                        style: _isRecording
-                            ? FilledButton.styleFrom(
-                                backgroundColor: theme.colorScheme.errorContainer,
-                                foregroundColor: theme.colorScheme.onErrorContainer,
-                              )
-                            : null,
-                      ),
-                    ],
+                        OutlinedButton.icon(
+                          onPressed: _isProcessingImage
+                              ? null
+                              : () => _loadTextFromImage(ImageSource.camera),
+                          icon: const Icon(Icons.photo_camera_outlined),
+                          label: Text(strings.dictationCamera),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _isProcessingImage
+                              ? null
+                              : () => _loadTextFromImage(ImageSource.gallery),
+                          icon: const Icon(Icons.photo_library_outlined),
+                          label: Text(strings.dictationGallery),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  FilledButton.tonalIcon(
+                    onPressed: _isRecording ? _stopRecording : _recordSpeech,
+                    icon: Icon(
+                      _isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
+                    ),
+                    label: Text(
+                      _isRecording
+                          ? strings.dictationStopRecording
+                          : strings.dictationRecord,
+                    ),
+                    style: _isRecording
+                        ? FilledButton.styleFrom(
+                            backgroundColor: theme.colorScheme.errorContainer,
+                            foregroundColor: theme.colorScheme.onErrorContainer,
+                          )
+                        : null,
                   ),
                   const SizedBox(height: 14),
                   Container(
@@ -510,7 +536,7 @@ class _DictationScreenState extends State<DictationScreen> {
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
+                      children: [
                         Icon(
                           Icons.info_outline_rounded,
                           color: theme.colorScheme.onSecondaryContainer,
@@ -531,13 +557,21 @@ class _DictationScreenState extends State<DictationScreen> {
               ),
             ),
           ),
+          if (_sourceText.isNotEmpty && !_isFromHub) ...[
+            const SizedBox(height: 18),
+            _TextPanel(
+              title: strings.dictationExpectedPassage,
+              text: _sourceText,
+              emptyState: strings.dictationEmptyPassage,
+            ),
+          ],
           const SizedBox(height: 18),
           _TextPanel(
             title: strings.dictationCapturedSpeech,
             text: _spokenText,
             emptyState: strings.dictationEmptySpeech,
           ),
-          if (analysis != null) ...<Widget>[
+          if (analysis != null) ...[
             const SizedBox(height: 18),
             Text(
               strings.dictationPerformanceSummary,
@@ -547,7 +581,7 @@ class _DictationScreenState extends State<DictationScreen> {
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: <Widget>[
+              children: [
                 _AnalysisMetricCard(
                   label: strings.dictationAccuracy,
                   value: '${analysis.accuracy.toStringAsFixed(1)}%',
@@ -577,7 +611,7 @@ class _DictationScreenState extends State<DictationScreen> {
                 accent: theme.colorScheme.secondary,
                 content: analysis.mismatchedPairs.join(', '),
               ),
-            if (analysis.missedWords.isNotEmpty) ...<Widget>[
+            if (analysis.missedWords.isNotEmpty) ...[
               const SizedBox(height: 12),
               _FeedbackPanel(
                 title: strings.dictationMissedWords,
@@ -585,7 +619,7 @@ class _DictationScreenState extends State<DictationScreen> {
                 content: analysis.missedWords.join(', '),
               ),
             ],
-            if (analysis.extraWords.isNotEmpty) ...<Widget>[
+            if (analysis.extraWords.isNotEmpty) ...[
               const SizedBox(height: 12),
               _FeedbackPanel(
                 title: strings.dictationExtraWords,
@@ -595,7 +629,7 @@ class _DictationScreenState extends State<DictationScreen> {
             ],
             if (analysis.missedWords.isEmpty &&
                 analysis.extraWords.isEmpty &&
-                analysis.mismatchedPairs.isEmpty) ...<Widget>[
+                analysis.mismatchedPairs.isEmpty) ...[
               const SizedBox(height: 12),
               _FeedbackPanel(
                 title: strings.dictationResult,
