@@ -91,7 +91,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
       _pendingEmail = result.email ?? _emailController.text.trim();
       _setMode(
         _AuthMode.verify,
-        error: result.error,
         info: 'Enter the 6-digit code we emailed to $_pendingEmail.',
       );
       return;
