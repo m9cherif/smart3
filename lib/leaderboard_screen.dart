@@ -80,17 +80,22 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           Center(child: Text('No scores yet. Be the first!')),
                         ],
                       )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
-                        itemCount: _entries.length + 1,
-                        itemBuilder: (context, index) {
-                          if (index == 0) {
-                            return _buildPodium(_entries.take(3).toList(), colorScheme);
-                          }
-                          final entry = _entries[index - 1];
-                          final isMe = myName != null && entry.name == myName;
-                          return _buildRow(entry, isMe, colorScheme);
-                        },
+                    : Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 760),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+                            itemCount: _entries.length + 1,
+                            itemBuilder: (context, index) {
+                              if (index == 0) {
+                                return _buildPodium(_entries.take(3).toList(), colorScheme);
+                              }
+                              final entry = _entries[index - 1];
+                              final isMe = myName != null && entry.name == myName;
+                              return _buildRow(entry, isMe, colorScheme);
+                            },
+                          ),
+                        ),
                       ),
       ),
     );

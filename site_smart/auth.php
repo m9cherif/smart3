@@ -262,20 +262,14 @@ function a_send_otp(string $email, string $code, string $purpose): bool
 function a_deliver_mail(string $fromEmail, string $to, string $subject, array $headers, string $body): bool
 {
     $smtp = $GLOBALS['CONFIG']['mail']['smtp'] ?? [];
-    $diag = ['smtp_configured' => !empty($smtp['user']) && !empty($smtp['pass']), 'transport' => 'none'];
-    $GLOBALS['SS_MAIL_DIAG'] = &$diag;
-
-    if ($diag['smtp_configured']) {
-        $diag['transport'] = 'smtp';
+    if (!empty($smtp['user']) && !empty($smtp['pass'])) {
         if (a_smtp_send($smtp, $fromEmail, $to, $headers, $body)) {
-            $diag['transport'] = 'smtp';
             return true;
         }
-        $diag['smtp_error'] = $GLOBALS['SS_SMTP_ERROR'] ?? 'unknown';
+        error_log('SmartStudent mail: SMTP relay failed (' . ($GLOBALS['SS_SMTP_ERROR'] ?? 'unknown') . '); trying mail()');
     }
 
     // mail() only wants headers it should add itself omitted.
-    $diag['transport'] = 'mail';
     $mailHeaders = [];
     foreach ($headers as $h) {
         if (preg_match('/^(date|message-id|to|subject):/i', $h)) {
@@ -284,7 +278,9 @@ function a_deliver_mail(string $fromEmail, string $to, string $subject, array $h
         $mailHeaders[] = $h;
     }
     $ok = (bool) @mail($to, $subject, $body, implode("\r\n", $mailHeaders), '-f' . $fromEmail);
-    $diag['mail_ok'] = $ok;
+    if (!$ok) {
+        error_log('SmartStudent mail: delivery to ' . $to . ' failed on every transport');
+    }
     return $ok;
 }
 
@@ -296,9 +292,7 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
     $user = (string) $cfg['user'];
     $pass = (string) $cfg['pass'];
 
-    $log = [];
-    $GLOBALS['SS_SMTP_LOG'] = &$log;
-    $fail = static function (string $why) use (&$log): bool {
+    $fail = static function (string $why): bool {
         $GLOBALS['SS_SMTP_ERROR'] = $why;
         return false;
     };
@@ -313,7 +307,7 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
     }
     stream_set_timeout($fp, 20);
 
-    $read = static function () use ($fp, &$log): string {
+    $read = static function () use ($fp): string {
         $data = '';
         while (($line = fgets($fp, 2048)) !== false) {
             $data .= $line;
@@ -321,18 +315,9 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
                 break;
             }
         }
-        if ($data !== '') {
-            $log[] = '< ' . rtrim($data);
-        }
         return $data;
     };
-    $send = static function (string $cmd) use ($fp, $read, &$log): string {
-        // Never log credentials (base64 of user/pass lines would leak them).
-        if (preg_match('/^[A-Za-z0-9+\/]+={0,2}$/', $cmd)) {
-            $log[] = '> [redacted]';
-        } else {
-            $log[] = '> ' . $cmd;
-        }
+    $send = static function (string $cmd) use ($fp, $read): string {
         fwrite($fp, $cmd . "\r\n");
         return $read();
     };
@@ -835,28 +820,6 @@ switch ($action) {
             ];
         }
         a_json(['ok' => true, 'achievements' => $defs, 'unlocked' => $ach]);
-    }
-
-    case '_mailtest': {
-        // Delivery diagnostic: only ever mails addresses on our own domains.
-        $to = strtolower(a_str($in, 'to'));
-        if (!filter_var($to, FILTER_VALIDATE_EMAIL) || !preg_match('/@([a-z0-9-]+\.)*chrif\.net$/', $to)) {
-            a_error('Only @chrif.net test recipients are allowed.');
-        }
-        $code = a_gen_code((int) ($CONFIG['mail']['otp_length'] ?? 6));
-        $sent = a_send_otp($to, $code, 'verify');
-        $smtp = $CONFIG['mail']['smtp'] ?? [];
-        a_json([
-            'ok' => true,
-            'to' => $to,
-            'mail_sent' => $sent,
-            'code' => $code,
-            'smtp_user_set' => !empty($smtp['user']),
-            'smtp_pass_set' => !empty($smtp['pass']),
-            'mail_diag' => $GLOBALS['SS_MAIL_DIAG'] ?? null,
-            'smtp_log' => $GLOBALS['SS_SMTP_LOG'] ?? null,
-            'smtp_error' => $GLOBALS['SS_SMTP_ERROR'] ?? null,
-        ]);
     }
 
     default:

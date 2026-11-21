@@ -68,19 +68,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
         onRefresh: _load,
         child: _isLoading && _progress == null
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-                children: [
-                  if (user != null) _buildHeader(user, colorScheme),
-                  if (_error != null) ...[
-                    const SizedBox(height: 16),
-                    _buildError(colorScheme),
-                  ],
-                  const SizedBox(height: 20),
-                  if (_progress != null) ..._buildStats(_progress!, colorScheme),
-                  const SizedBox(height: 24),
-                  _buildAchievements(colorScheme),
-                ],
+            : Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+                    children: [
+                      if (user != null) _buildHeader(user, colorScheme),
+                      if (_error != null) ...[
+                        const SizedBox(height: 16),
+                        _buildError(colorScheme),
+                      ],
+                      const SizedBox(height: 20),
+                      if (_progress != null) ..._buildStats(_progress!, colorScheme),
+                      const SizedBox(height: 24),
+                      _buildAchievements(colorScheme),
+                    ],
+                  ),
+                ),
               ),
       ),
     );
@@ -223,13 +228,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
       const SizedBox(height: 16),
-      GridView.count(
-        crossAxisCount: 2,
+      GridView(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 1.7,
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 240,
+          mainAxisExtent: 100,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
         children: [
           _statTile('Current Streak', '${p.streak} days', Icons.local_fire_department_rounded, Colors.orange),
           _statTile('Longest Streak', '${p.longestStreak} days', Icons.emoji_events_rounded, Colors.amber.shade700),
