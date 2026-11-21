@@ -46,42 +46,45 @@ function ss_providers(array $config): array
     $has = static fn(string $name): bool => isset($k[$name]) && trim((string) $k[$name]) !== '';
     $p = [];
 
-    /* ---- keyless providers ---------------------------------------- */
-    $p[] = [
-        'id' => 'pollinations', 'name' => 'Pollinations AI', 'tier' => 'keyless',
-        'url' => 'https://text.pollinations.ai/openai', 'model' => 'openai',
-        'key' => null, 'priority' => 10, 'timeout' => 22, 'headers' => [],
-    ];
-    $p[] = [
-        'id' => 'pollinations-fast', 'name' => 'Pollinations Fast', 'tier' => 'keyless',
-        'url' => 'https://text.pollinations.ai/openai', 'model' => 'openai-fast',
-        'key' => null, 'priority' => 11, 'timeout' => 22, 'headers' => [],
-    ];
-    $p[] = [
-        'id' => 'hackclub', 'name' => 'Hack Club AI', 'tier' => 'keyless',
-        'url' => 'https://ai.hackclub.com/chat/completions', 'model' => 'llama-3.3-70b-versatile',
-        'key' => null, 'priority' => 20, 'timeout' => 12, 'headers' => [],
-    ];
-
-    /* ---- keyed free tiers (only if a key is configured) ----------- */
+    /* ---- best available models first ------------------------------ */
     if ($has('groq')) {
         $p[] = [
             'id' => 'groq-qwen-27b', 'name' => 'Groq · Qwen 3.8 27B', 'tier' => 'free-tier',
             'url' => 'https://api.groq.com/openai/v1/chat/completions', 'model' => 'qwen/qwen3.8-27b',
-            'key' => $k['groq'], 'priority' => 30, 'timeout' => 30, 'headers' => [],
+            'key' => $k['groq'], 'priority' => 10, 'timeout' => 30, 'headers' => [],
         ];
         $p[] = [
             'id' => 'groq-gpt-oss-120b', 'name' => 'Groq · GPT-OSS 120B', 'tier' => 'free-tier',
             'url' => 'https://api.groq.com/openai/v1/chat/completions', 'model' => 'openai/gpt-oss-120b',
-            'key' => $k['groq'], 'priority' => 31, 'timeout' => 30, 'headers' => [],
+            'key' => $k['groq'], 'priority' => 11, 'timeout' => 30, 'headers' => [],
             'extra_body' => ['reasoning_effort' => 'low'],
         ];
         $p[] = [
             'id' => 'groq-allam-2-7b', 'name' => 'Groq · ALLaM 2 7B (AR)', 'tier' => 'free-tier',
             'url' => 'https://api.groq.com/openai/v1/chat/completions', 'model' => 'allam-2-7b',
-            'key' => $k['groq'], 'priority' => 32, 'timeout' => 25, 'headers' => [],
+            'key' => $k['groq'], 'priority' => 12, 'timeout' => 25, 'headers' => [],
         ];
     }
+
+    /* ---- keyless providers (no auth, always available) ------------ */
+    $p[] = [
+        'id' => 'pollinations', 'name' => 'Pollinations AI', 'tier' => 'keyless',
+        'url' => 'https://text.pollinations.ai/openai', 'model' => 'openai',
+        'key' => null, 'priority' => 20, 'timeout' => 22, 'headers' => [],
+    ];
+    $p[] = [
+        'id' => 'pollinations-fast', 'name' => 'Pollinations Fast', 'tier' => 'keyless',
+        'url' => 'https://text.pollinations.ai/openai', 'model' => 'openai-fast',
+        'key' => null, 'priority' => 21, 'timeout' => 22, 'headers' => [],
+    ];
+    $p[] = [
+        'id' => 'hackclub', 'name' => 'Hack Club AI', 'tier' => 'keyless',
+        'url' => 'https://ai.hackclub.com/chat/completions', 'model' => 'llama-3.3-70b-versatile',
+        'key' => null, 'priority' => 22, 'timeout' => 12, 'headers' => [],
+    ];
+
+    /* ---- keyed free tiers (only if a key is configured) ----------- */
+
     if ($has('gemini')) {
         $p[] = [
             'id' => 'gemini-2.0-flash', 'name' => 'Google · Gemini 2.0 Flash', 'tier' => 'free-tier',
