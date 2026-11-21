@@ -70,7 +70,7 @@ class AIService {
     };
 
     // 1) The auto router: best free model first, automatic failover inside.
-    final router = await _postJson(_routerBaseUrl, body);
+    final router = await _postJson(_routerBaseUrl, body: body);
     if (router != null) {
       final content =
           router['choices']?[0]?['message']?['content'] as String?;
