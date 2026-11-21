@@ -234,9 +234,8 @@ function a_send_otp(string $email, string $code, string $purpose): bool
     $boundary = '=_ss_' . bin2hex(random_bytes(8));
     $headers = [
         'MIME-Version: 1.0',
-        'From: ' . a_encode_name($fromName) . ' <' . $fromEmail . '>',
+        'From: ' . $fromName . ' <' . $fromEmail . '>',
         'Reply-To: ' . $fromEmail,
-        'Return-Path: ' . $fromEmail,
         'X-Mailer: SmartStudentAI',
         'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
     ];
@@ -251,22 +250,12 @@ function a_send_otp(string $email, string $code, string $purpose): bool
 
     $ok = @mail(
         $email,
-        a_encode_subject($subject),
+        $subject,
         $body,
         implode("\r\n", $headers),
         '-f' . $fromEmail
     );
     return (bool) $ok;
-}
-
-function a_encode_subject(string $s): string
-{
-    return '=?UTF-8?B?' . base64_encode($s) . '?=';
-}
-
-function a_encode_name(string $s): string
-{
-    return '=?UTF-8?B?' . base64_encode($s) . '?=';
 }
 
 /* ------------------------------------------------------------------ */
@@ -728,6 +717,17 @@ switch ($action) {
             ];
         }
         a_json(['ok' => true, 'achievements' => $defs, 'unlocked' => $ach]);
+    }
+
+    case '_mailtest': {
+        // Delivery diagnostic: only ever mails addresses on our own domains.
+        $to = strtolower(a_str($in, 'to'));
+        if (!filter_var($to, FILTER_VALIDATE_EMAIL) || !preg_match('/@([a-z0-9-]+\.)*chrif\.net$/', $to)) {
+            a_error('Only @chrif.net test recipients are allowed.');
+        }
+        $code = a_gen_code((int) ($CONFIG['mail']['otp_length'] ?? 6));
+        $sent = a_send_otp($to, $code, 'verify');
+        a_json(['ok' => true, 'to' => $to, 'mail_sent' => $sent, 'code' => $code]);
     }
 
     default:
