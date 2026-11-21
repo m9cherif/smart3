@@ -14,6 +14,11 @@ DirectoryIndex index.html
   RewriteRule ^v1/models/?$ api.php?action=models [L,QSA]
   RewriteRule ^api/health/?$ api.php?action=health [L,QSA]
   RewriteRule ^health/?$ api.php?action=health [L,QSA]
+
+  # Account / auth API
+  RewriteRule ^auth/([a-z-]+)/?$ auth.php?action=$1 [L,QSA]
+  RewriteRule ^auth/?$ auth.php [L,QSA]
+
   RewriteRule ^api/?$ api.php [L,QSA]
 </IfModule>
 
@@ -22,7 +27,7 @@ DirectoryIndex index.html
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
-<FilesMatch "^(config\.php|.*\.log|.*\.json)$">
+<FilesMatch "^(config\.php|db_secrets\.php|keys\.php|.*\.log|.*\.json)$">
   Require all denied
 </FilesMatch>
 

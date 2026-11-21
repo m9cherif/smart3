@@ -17,6 +17,18 @@ $config = [
     'health_ttl'        => 600,     // skip a failing provider for 10 minutes
     'log_requests'      => true,
 
+    // Account / email verification.
+    'mail' => [
+        'from_email'   => 'no-reply@smart.chrif.net',
+        'from_name'    => 'Smart Student AI',
+        'otp_length'   => 6,
+        'otp_ttl'      => 600, // seconds a code stays valid
+        'max_per_hour' => 6,   // max codes per email per hour
+    ],
+    'auth' => [
+        'session_days' => 60,
+    ],
+
     // Free-tier API keys. Fill only the ones you own; empty keys are skipped.
     'keys' => [
         'groq'              => '',
@@ -52,6 +64,12 @@ if (is_file(__DIR__ . '/keys.php')) {
         }
         if (!empty($extra['router_token'])) {
             $config['router_token'] = $extra['router_token'];
+        }
+        if (isset($extra['mail']) && is_array($extra['mail'])) {
+            $config['mail'] = array_merge($config['mail'], $extra['mail']);
+        }
+        if (isset($extra['auth']) && is_array($extra['auth'])) {
+            $config['auth'] = array_merge($config['auth'], $extra['auth']);
         }
     }
 }
