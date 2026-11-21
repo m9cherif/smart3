@@ -262,13 +262,20 @@ function a_send_otp(string $email, string $code, string $purpose): bool
 function a_deliver_mail(string $fromEmail, string $to, string $subject, array $headers, string $body): bool
 {
     $smtp = $GLOBALS['CONFIG']['mail']['smtp'] ?? [];
-    if (!empty($smtp['user']) && !empty($smtp['pass'])) {
+    $diag = ['smtp_configured' => !empty($smtp['user']) && !empty($smtp['pass']), 'transport' => 'none'];
+    $GLOBALS['SS_MAIL_DIAG'] = &$diag;
+
+    if ($diag['smtp_configured']) {
+        $diag['transport'] = 'smtp';
         if (a_smtp_send($smtp, $fromEmail, $to, $headers, $body)) {
+            $diag['transport'] = 'smtp';
             return true;
         }
+        $diag['smtp_error'] = $GLOBALS['SS_SMTP_ERROR'] ?? 'unknown';
     }
 
     // mail() only wants headers it should add itself omitted.
+    $diag['transport'] = 'mail';
     $mailHeaders = [];
     foreach ($headers as $h) {
         if (preg_match('/^(date|message-id|to|subject):/i', $h)) {
@@ -276,7 +283,9 @@ function a_deliver_mail(string $fromEmail, string $to, string $subject, array $h
         }
         $mailHeaders[] = $h;
     }
-    return (bool) @mail($to, $subject, $body, implode("\r\n", $mailHeaders), '-f' . $fromEmail);
+    $ok = (bool) @mail($to, $subject, $body, implode("\r\n", $mailHeaders), '-f' . $fromEmail);
+    $diag['mail_ok'] = $ok;
+    return $ok;
 }
 
 /** Minimal SMTP client (SSL or STARTTLS) using only core PHP. */
@@ -287,17 +296,24 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
     $user = (string) $cfg['user'];
     $pass = (string) $cfg['pass'];
 
+    $log = [];
+    $GLOBALS['SS_SMTP_LOG'] = &$log;
+    $fail = static function (string $why) use (&$log): bool {
+        $GLOBALS['SS_SMTP_ERROR'] = $why;
+        return false;
+    };
+
     $prefix = $port === 465 ? 'ssl://' : 'tcp://';
     $ctx = stream_context_create(['ssl' => [
         'verify_peer' => true, 'verify_peer_name' => true, 'SNI_enabled' => true,
     ]]);
     $fp = @stream_socket_client($prefix . $host . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT, $ctx);
     if (!$fp) {
-        return false;
+        return $fail("connect failed to {$prefix}{$host}:{$port} ({$errno} {$errstr})");
     }
     stream_set_timeout($fp, 20);
 
-    $read = static function () use ($fp): string {
+    $read = static function () use ($fp, &$log): string {
         $data = '';
         while (($line = fgets($fp, 2048)) !== false) {
             $data .= $line;
@@ -305,9 +321,18 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
                 break;
             }
         }
+        if ($data !== '') {
+            $log[] = '< ' . rtrim($data);
+        }
         return $data;
     };
-    $send = static function (string $cmd) use ($fp, $read): string {
+    $send = static function (string $cmd) use ($fp, $read, &$log): string {
+        // Never log credentials (base64 of user/pass lines would leak them).
+        if (preg_match('/^[A-Za-z0-9+\/]+={0,2}$/', $cmd)) {
+            $log[] = '> [redacted]';
+        } else {
+            $log[] = '> ' . $cmd;
+        }
         fwrite($fp, $cmd . "\r\n");
         return $read();
     };
@@ -319,7 +344,7 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
         $send('STARTTLS');
         if (!@stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
             fclose($fp);
-            return false;
+            return $fail('STARTTLS failed');
         }
         $send('EHLO smart.chrif.net');
     }
@@ -329,13 +354,13 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
     $auth = $send(base64_encode($pass));
     if (strpos($auth, '235') === false) {
         fclose($fp);
-        return false;
+        return $fail('auth rejected: ' . trim($auth));
     }
 
     $r = $send('MAIL FROM:<' . $fromEmail . '>');
-    if (strpos($r, '250') === false) { fclose($fp); return false; }
+    if (strpos($r, '250') === false) { fclose($fp); return $fail('MAIL FROM rejected: ' . trim($r)); }
     $r = $send('RCPT TO:<' . $to . '>');
-    if (strpos($r, '250') === false && strpos($r, '251') === false) { fclose($fp); return false; }
+    if (strpos($r, '250') === false && strpos($r, '251') === false) { fclose($fp); return $fail('RCPT TO rejected: ' . trim($r)); }
     $send('DATA');
 
     $data = implode("\r\n", $headers) . "\r\n\r\n" . $body;
@@ -345,7 +370,10 @@ function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, 
     $send('QUIT');
     fclose($fp);
 
-    return strpos($done, '250') !== false;
+    if (strpos($done, '250') === false) {
+        return $fail('DATA rejected: ' . trim($done));
+    }
+    return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -817,7 +845,18 @@ switch ($action) {
         }
         $code = a_gen_code((int) ($CONFIG['mail']['otp_length'] ?? 6));
         $sent = a_send_otp($to, $code, 'verify');
-        a_json(['ok' => true, 'to' => $to, 'mail_sent' => $sent, 'code' => $code]);
+        $smtp = $CONFIG['mail']['smtp'] ?? [];
+        a_json([
+            'ok' => true,
+            'to' => $to,
+            'mail_sent' => $sent,
+            'code' => $code,
+            'smtp_user_set' => !empty($smtp['user']),
+            'smtp_pass_set' => !empty($smtp['pass']),
+            'mail_diag' => $GLOBALS['SS_MAIL_DIAG'] ?? null,
+            'smtp_log' => $GLOBALS['SS_SMTP_LOG'] ?? null,
+            'smtp_error' => $GLOBALS['SS_SMTP_ERROR'] ?? null,
+        ]);
     }
 
     default:
