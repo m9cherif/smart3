@@ -8,8 +8,15 @@ import 'package:flutter/foundation.dart';
 import 'package:smart_student_ai/app_controller.dart';
 
 class AIService {
-  static const String _apiKey =
-      String.fromEnvironment('GROQ_API_KEY');
+  // Auto AI router (smart.chrif.net): asks for the best free model and
+  // retries the next best one automatically. No key needed for keyless providers.
+  static const String _routerBaseUrl = String.fromEnvironment(
+    'SMART_ROUTER_URL',
+    defaultValue: 'https://smart.chrif.net/v1/chat/completions',
+  );
+
+  // Direct Groq fallback, used only if the router itself is unreachable.
+  static const String _apiKey = String.fromEnvironment('GROQ_API_KEY');
   static const String _baseUrl =
       'https://api.groq.com/openai/v1/chat/completions';
   static String _lastGeneratedSummary = '';
@@ -17,6 +24,79 @@ class AIService {
 
   static Future<void> initialize() async {
     // OpenRouter API doesn't need model initialization like Gemini
+  }
+
+  /// POST a JSON body and return the decoded map, or null on any failure.
+  static Future<Map<String, dynamic>?> _postJson(
+    String url, {
+    required Map<String, dynamic> body,
+    Map<String, String>? extraHeaders,
+    int timeoutSeconds = 90,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          ...?extraHeaders,
+        },
+        body: jsonEncode(body),
+      ).timeout(Duration(seconds: timeoutSeconds));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      debugPrint(
+        'AIService: POST $url failed with HTTP ${response.statusCode}: ${response.body}',
+      );
+      return null;
+    } catch (e) {
+      debugPrint('AIService: POST $url exception: $e');
+      return null;
+    }
+  }
+
+  /// Chat completion through the auto router, with a direct Groq fallback.
+  static Future<String> _chatCompletionText({
+    required List<Map<String, dynamic>> messages,
+    String groqModel = 'qwen/qwen3.8-27b',
+    int maxTokens = 2000,
+    double temperature = 0.7,
+  }) async {
+    final body = <String, dynamic>{
+      'model': 'auto',
+      'messages': messages,
+      'max_tokens': maxTokens,
+      'temperature': temperature,
+    };
+
+    // 1) The auto router: best free model first, automatic failover inside.
+    final router = await _postJson(_routerBaseUrl, body);
+    if (router != null) {
+      final content =
+          router['choices']?[0]?['message']?['content'] as String?;
+      if (content != null && content.trim().isNotEmpty) {
+        return content.trim();
+      }
+    }
+
+    // 2) Fallback to Groq directly.
+    if (_apiKey.isNotEmpty) {
+      final groqBody = Map<String, dynamic>.from(body)..['model'] = groqModel;
+      final groq = await _postJson(
+        _baseUrl,
+        body: groqBody,
+        extraHeaders: {'Authorization': 'Bearer $_apiKey'},
+      );
+      if (groq != null) {
+        final content =
+            groq['choices']?[0]?['message']?['content'] as String?;
+        if (content != null && content.trim().isNotEmpty) {
+          return content.trim();
+        }
+      }
+    }
+
+    return 'Error: AI service unavailable.';
   }
 
   // Extract text from PDF using ConvertAPI
@@ -323,38 +403,29 @@ class AIService {
         : 'English';
 
     try {
-      final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': 'llama-3.3-70b-versatile',
-          'messages': [
-            {
-              'role': 'system',
-              'content': 'You are an AI that summarizes text. Return ONLY the final summary in $languageName. Do not include any introductory phrases or conversational filler.',
-            },
-            {
-              'role': 'user',
-              'content': isFinal 
+      final response = await _chatCompletionText(
+        messages: [
+          {
+            'role': 'system',
+            'content':
+                'You are an AI that summarizes text. Return ONLY the final summary in $languageName. Do not include any introductory phrases or conversational filler.',
+          },
+          {
+            'role': 'user',
+            'content': isFinal
                 ? 'The following are summaries of different parts of a document in $languageName. Please combine them into one final, cohesive, and comprehensive summary in $languageName:\n\n$chunk'
                 : 'Please provide a comprehensive summary of the following text in $languageName:\n\n$chunk',
-            },
-          ],
-          'max_tokens': 2000,
-          'temperature': 0.7,
-        }),
+          },
+        ],
+        groqModel: 'qwen/qwen3.8-27b',
+        maxTokens: 2000,
+        temperature: 0.7,
       );
 
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        final content = responseData['choices'][0]['message']['content'] as String?;
-        return content?.trim() ?? 'Error: Empty response';
-      } else {
-        return 'Error: HTTP ${response.statusCode}';
+      if (!response.startsWith('Error:')) {
+        return response.trim();
       }
+      return 'Error: AI service unavailable.';
     } catch (e) {
       return 'Error: $e';
     }
@@ -385,73 +456,63 @@ class AIService {
         quizInputText = '$start\n\n[...]\n\n$middle\n\n[...]\n\n$end';
       }
 
-      final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': 'llama-3.3-70b-versatile',
-          'messages': [
-            {
-              'role': 'system',
-              'content': 'You are a quiz generator. You must return ONLY a JSON array of 5 multiple-choice questions. Do not include markdown code blocks, explanations, or any other text.',
-            },
-            {
-              'role': 'user',
-              'content':
-                  'Based on the following text, create a quiz with 5 multiple-choice questions in the same language as the text provided. Each question should test important concepts from the text, have 4 options (A, B, C, D), and include the correct answer at the end.\n\nReturn the response as a JSON array of questions with this format:\n[\n  {\n    "question": "The question text here",\n    "options": ["Option A", "Option B", "Option C", "Option D"],\n    "correct_answer": 0\n  }\n]\n\nIMPORTANT: Return ONLY the JSON array. Each question must be an object with exactly "question", "options", and "correct_answer" fields. Use 0 for A, 1 for B, 2 for C, and 3 for D as the correct_answer index.\n\nText for quiz:\n$quizInputText',
-            },
-          ],
-          'max_tokens': 2000,
-          'temperature': 0.5, // Lower temperature for more consistent JSON
-        }),
+      final responseText = await _chatCompletionText(
+        messages: [
+          {
+            'role': 'system',
+            'content':
+                'You are a quiz generator. You must return ONLY a JSON array of 5 multiple-choice questions. Do not include markdown code blocks, explanations, or any other text.',
+          },
+          {
+            'role': 'user',
+            'content':
+                'Based on the following text, create a quiz with 5 multiple-choice questions in the same language as the text provided. Each question should test important concepts from the text, have 4 options (A, B, C, D), and include the correct answer at the end.\n\nReturn the response as a JSON array of questions with this format:\n[\n  {\n    "question": "The question text here",\n    "options": ["Option A", "Option B", "Option C", "Option D"],\n    "correct_answer": 0\n  }\n]\n\nIMPORTANT: Return ONLY the JSON array. Each question must be an object with exactly "question", "options", and "correct_answer" fields. Use 0 for A, 1 for B, 2 for C, and 3 for D as the correct_answer index.\n\nText for quiz:\n$quizInputText',
+          },
+        ],
+        groqModel: 'qwen/qwen3.8-27b',
+        maxTokens: 2000,
+        temperature: 0.5, // Lower temperature for more consistent JSON
       );
 
-      if (response.statusCode != 200) {
-        debugPrint('AIService: Quiz API failed with status ${response.statusCode}: ${response.body}');
-        return [];
+      if (responseText.startsWith('Error:')) {
+        debugPrint('AIService: Quiz API failed: $responseText');
+        return _parseQuizManually('');
       }
-        final responseData = jsonDecode(response.body);
-        final String? content =
-            responseData['choices'][0]['message']['content'];
 
-        if (content == null) return [];
+      final content = responseText;
 
-        try {
-          final jsonStart = content.indexOf('[');
-          final jsonEnd = content.lastIndexOf(']');
-          if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
-            final jsonStr = content.substring(jsonStart, jsonEnd + 1);
+      try {
+        final jsonStart = content.indexOf('[');
+        final jsonEnd = content.lastIndexOf(']');
+        if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+          final jsonStr = content.substring(jsonStart, jsonEnd + 1);
 
-            final List<dynamic> quizDataList =
-                jsonDecode(jsonStr) as List<dynamic>;
-            final List<Map<String, dynamic>> validQuizData = quizDataList
-                .where((item) {
-                  if (item is! Map<String, dynamic>) return false;
-                  return item.containsKey('question') &&
-                      item.containsKey('options') &&
-                      item.containsKey('correct_answer') &&
-                      item['options'] is List &&
-                      item['correct_answer'] is int &&
-                      (item['options'] as List).length == 4;
-                })
-                .map((item) => item as Map<String, dynamic>)
-                .toList();
+          final List<dynamic> quizDataList = jsonDecode(jsonStr) as List<dynamic>;
+          final List<Map<String, dynamic>> validQuizData = quizDataList
+              .where((item) {
+                if (item is! Map<String, dynamic>) return false;
+                return item.containsKey('question') &&
+                    item.containsKey('options') &&
+                    item.containsKey('correct_answer') &&
+                    item['options'] is List &&
+                    item['correct_answer'] is int &&
+                    (item['options'] as List).length == 4;
+              })
+              .map((item) => item as Map<String, dynamic>)
+              .toList();
 
-            if (validQuizData.isEmpty) {
-              return _parseQuizManually(content);
-            }
-
-            _lastGeneratedQuiz = validQuizData.take(5).toList();
-            return _lastGeneratedQuiz;
-          } else {
+          if (validQuizData.isEmpty) {
             return _parseQuizManually(content);
           }
-        } catch (e) {
+
+          _lastGeneratedQuiz = validQuizData.take(5).toList();
+          return _lastGeneratedQuiz;
+        } else {
           return _parseQuizManually(content);
         }
+      } catch (e) {
+        return _parseQuizManually(content);
+      }
     } catch (e) {
       return _parseQuizManually('');
     }

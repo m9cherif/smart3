@@ -51,3 +51,10 @@ app.*.map.json
 # Local API secrets (never commit)
 secrets.json
 
+
+# Server-only router secrets / runtime
+site_smart/keys.php
+site_smart/runtime/state.json
+site_smart/runtime/requests*.log
+site_smart_*.zip
+
