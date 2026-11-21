@@ -16,7 +16,7 @@ DirectoryIndex index.html
   RewriteRule ^health/?$ api.php?action=health [L,QSA]
 
   # Account / auth API
-  RewriteRule ^auth/([a-z-]+)/?$ auth.php?action=$1 [L,QSA]
+  RewriteRule ^auth/([a-z_-]+)/?$ auth.php?action=$1 [L,QSA]
   RewriteRule ^auth/?$ auth.php [L,QSA]
 
   RewriteRule ^api/?$ api.php [L,QSA]

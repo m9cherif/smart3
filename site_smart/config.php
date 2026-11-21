@@ -24,6 +24,13 @@ $config = [
         'otp_length'   => 6,
         'otp_ttl'      => 600, // seconds a code stays valid
         'max_per_hour' => 6,   // max codes per email per hour
+        // Optional authenticated SMTP relay (filled from mail_secrets.php).
+        'smtp' => [
+            'host' => 'smtp.hostinger.com',
+            'port' => 465,
+            'user' => '',
+            'pass' => '',
+        ],
     ],
     'auth' => [
         'session_days' => 60,
@@ -71,6 +78,14 @@ if (is_file(__DIR__ . '/keys.php')) {
         if (isset($extra['auth']) && is_array($extra['auth'])) {
             $config['auth'] = array_merge($config['auth'], $extra['auth']);
         }
+    }
+}
+
+// Mail relay credentials (server-only, never committed).
+if (is_file(__DIR__ . '/mail_secrets.php')) {
+    $ms = @include __DIR__ . '/mail_secrets.php';
+    if (is_array($ms)) {
+        $config['mail']['smtp'] = array_merge($config['mail']['smtp'] ?? [], $ms);
     }
 }
 

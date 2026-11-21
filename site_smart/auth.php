@@ -233,8 +233,12 @@ function a_send_otp(string $email, string $code, string $purpose): bool
 
     $boundary = '=_ss_' . bin2hex(random_bytes(8));
     $headers = [
+        'Date: ' . date('r'),
+        'Message-ID: <' . bin2hex(random_bytes(12)) . '@smart.chrif.net>',
         'MIME-Version: 1.0',
         'From: ' . $fromName . ' <' . $fromEmail . '>',
+        'To: <' . $email . '>',
+        'Subject: ' . $subject,
         'Reply-To: ' . $fromEmail,
         'X-Mailer: SmartStudentAI',
         'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
@@ -248,14 +252,100 @@ function a_send_otp(string $email, string $code, string $purpose): bool
         . $html . "\r\n"
         . "--{$boundary}--";
 
-    $ok = @mail(
-        $email,
-        $subject,
-        $body,
-        implode("\r\n", $headers),
-        '-f' . $fromEmail
-    );
-    return (bool) $ok;
+    return a_deliver_mail($fromEmail, $email, $subject, $headers, $body);
+}
+
+/**
+ * Delivers a message. Prefers the authenticated SMTP relay (reliable + DKIM
+ * signed by Hostinger) and falls back to the local PHP mail() transport.
+ */
+function a_deliver_mail(string $fromEmail, string $to, string $subject, array $headers, string $body): bool
+{
+    $smtp = $GLOBALS['CONFIG']['mail']['smtp'] ?? [];
+    if (!empty($smtp['user']) && !empty($smtp['pass'])) {
+        if (a_smtp_send($smtp, $fromEmail, $to, $headers, $body)) {
+            return true;
+        }
+    }
+
+    // mail() only wants headers it should add itself omitted.
+    $mailHeaders = [];
+    foreach ($headers as $h) {
+        if (preg_match('/^(date|message-id|to|subject):/i', $h)) {
+            continue;
+        }
+        $mailHeaders[] = $h;
+    }
+    return (bool) @mail($to, $subject, $body, implode("\r\n", $mailHeaders), '-f' . $fromEmail);
+}
+
+/** Minimal SMTP client (SSL or STARTTLS) using only core PHP. */
+function a_smtp_send(array $cfg, string $fromEmail, string $to, array $headers, string $body): bool
+{
+    $host = (string) ($cfg['host'] ?? 'smtp.hostinger.com');
+    $port = (int) ($cfg['port'] ?? 465);
+    $user = (string) $cfg['user'];
+    $pass = (string) $cfg['pass'];
+
+    $prefix = $port === 465 ? 'ssl://' : 'tcp://';
+    $ctx = stream_context_create(['ssl' => [
+        'verify_peer' => true, 'verify_peer_name' => true, 'SNI_enabled' => true,
+    ]]);
+    $fp = @stream_socket_client($prefix . $host . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT, $ctx);
+    if (!$fp) {
+        return false;
+    }
+    stream_set_timeout($fp, 20);
+
+    $read = static function () use ($fp): string {
+        $data = '';
+        while (($line = fgets($fp, 2048)) !== false) {
+            $data .= $line;
+            if (strlen($line) < 4 || $line[3] !== '-') {
+                break;
+            }
+        }
+        return $data;
+    };
+    $send = static function (string $cmd) use ($fp, $read): string {
+        fwrite($fp, $cmd . "\r\n");
+        return $read();
+    };
+
+    $read(); // server greeting
+    $send('EHLO smart.chrif.net');
+
+    if ($port !== 465) {
+        $send('STARTTLS');
+        if (!@stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+            fclose($fp);
+            return false;
+        }
+        $send('EHLO smart.chrif.net');
+    }
+
+    $send('AUTH LOGIN');
+    $send(base64_encode($user));
+    $auth = $send(base64_encode($pass));
+    if (strpos($auth, '235') === false) {
+        fclose($fp);
+        return false;
+    }
+
+    $r = $send('MAIL FROM:<' . $fromEmail . '>');
+    if (strpos($r, '250') === false) { fclose($fp); return false; }
+    $r = $send('RCPT TO:<' . $to . '>');
+    if (strpos($r, '250') === false && strpos($r, '251') === false) { fclose($fp); return false; }
+    $send('DATA');
+
+    $data = implode("\r\n", $headers) . "\r\n\r\n" . $body;
+    $data = preg_replace('/^\./m', '..', $data);
+    fwrite($fp, $data . "\r\n.\r\n");
+    $done = $read();
+    $send('QUIT');
+    fclose($fp);
+
+    return strpos($done, '250') !== false;
 }
 
 /* ------------------------------------------------------------------ */
