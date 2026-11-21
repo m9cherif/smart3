@@ -16,8 +16,9 @@ import 'package:smart_student_ai/interactive_quiz_dialog.dart';
 import 'dictation_screen.dart';
 import 'planner_screen.dart';
 import 'revision_screen.dart';
-import 'package:smart_student_ai/firebase_auth_service.dart';
-import 'package:smart_student_ai/user_model.dart';
+import 'package:smart_student_ai/auth_service.dart';
+import 'package:smart_student_ai/profile_screen.dart';
+import 'package:smart_student_ai/leaderboard_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,7 +32,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isLoadingProgress = true;
   List<Map<String, dynamic>> _openTasks = [];
   bool _isLoadingTasks = true;
-  UserModel? _userData;
+  AuthUser? _userData;
+  CloudProgress? _cloudProgress;
 
   // Learning Hub controllers and services
   final TextEditingController _inputTextController = TextEditingController();
@@ -91,20 +93,39 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadUserData() async {
-    final authService = FirebaseAuthService();
-    final user = await authService.currentUser;
-    if (user != null) {
-      final data = await authService.getUserData(user.uid);
-      if (mounted) {
-        setState(() {
-          _userData = data;
-        });
-      }
+    final authService = AuthService.instance;
+    await authService.initialize();
+    final user = authService.currentUser;
+    if (user != null && mounted) {
+      setState(() {
+        _userData = user;
+        _cloudProgress = authService.progress;
+      });
     }
   }
 
   Future<void> _logout() async {
-    await FirebaseAuthService().signOut();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text('You can sign back in at any time to keep your progress.'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (confirm ?? false) {
+      await AuthService.instance.logout();
+    }
   }
 
   Future<void> _toggleTaskCompletion(int taskId, bool completed) async {
@@ -507,6 +528,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _progress = progress;
         _isLoadingProgress = false;
       });
+
+      _syncCloudProgress(progress);
     } catch (_) {
       if (!mounted) {
         return;
@@ -516,6 +539,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _progress = null;
         _isLoadingProgress = false;
       });
+    }
+  }
+
+  /// Mirrors the local XP/activity to the account backend and keeps the
+  /// home screen's streak / level chip in sync.
+  Future<void> _syncCloudProgress(StudentProgress local) async {
+    final auth = AuthService.instance;
+    if (!auth.isSignedIn) return;
+    try {
+      await auth.seedFromLocal(
+        xp: local.xp,
+        revisionCount: local.revisionCount,
+        dictationCount: local.dictationCount,
+      );
+      await auth.refresh();
+      if (mounted) {
+        setState(() {
+          _cloudProgress = auth.progress;
+        });
+      }
+    } catch (e) {
+      debugPrint('Sync cloud progress failed: $e');
     }
   }
 
@@ -607,6 +652,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         icon: Icons.mic_external_on_rounded,
         accent: colorScheme.secondary,
         page: const DictationScreen(),
+      ),
+      _FeatureEntry(
+        title: 'Profile & Stats',
+        subtitle: 'Your XP, streaks, accuracy and rank',
+        badge: 'NEW',
+        icon: Icons.insights_rounded,
+        accent: colorScheme.primary,
+        page: const ProfileScreen(),
+      ),
+      _FeatureEntry(
+        title: 'Leaderboard',
+        subtitle: 'See how you rank against other students',
+        badge: 'CLASS',
+        icon: Icons.emoji_events_rounded,
+        accent: const Color(0xFFF59E0B),
+        page: const LeaderboardScreen(),
       ),
     ];
 
@@ -718,6 +779,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 ),
                               ),
                             ),
+                            if (_cloudProgress != null) ...[
+                              const SizedBox(height: 14),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: <Widget>[
+                                  _heroChip(
+                                    icon: Icons.local_fire_department_rounded,
+                                    label: '${_cloudProgress!.streak} day streak',
+                                    color: themeSpec.heroForeground,
+                                  ),
+                                  _heroChip(
+                                    icon: Icons.bolt_rounded,
+                                    label:
+                                        '${_cloudProgress!.todayXp}/${_cloudProgress!.dailyGoal} XP today',
+                                    color: themeSpec.heroForeground,
+                                  ),
+                                  _heroChip(
+                                    icon: Icons.military_tech_rounded,
+                                    label: 'Level ${_cloudProgress!.level}',
+                                    color: themeSpec.heroForeground,
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -1315,9 +1401,58 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
+              const SizedBox(height: 24),
+              // Study tools: profile & leaderboard
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _FeatureCard(
+                      entry: features[3],
+                      onTap: () => _openModule(features[3].page),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _FeatureCard(
+                      entry: features[4],
+                      onTap: () => _openModule(features[4].page),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _heroChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

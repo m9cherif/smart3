@@ -58,3 +58,8 @@ site_smart/runtime/state.json
 site_smart/runtime/requests*.log
 site_smart_*.zip
 
+
+# Local-only dev helpers (contain secrets)
+tool/deploy_smart.php
+tool/run_app.ps1
+.firebase/

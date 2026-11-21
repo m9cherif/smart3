@@ -13,7 +13,7 @@ import 'package:smart_student_ai/database_service.dart';
 import 'package:smart_student_ai/speech_service.dart';
 import 'package:smart_student_ai/app_customization_panel.dart';
 import 'package:smart_student_ai/ai_service.dart';
-import 'package:smart_student_ai/firebase_auth_service.dart';
+import 'package:smart_student_ai/auth_service.dart';
 
 class DictationScreen extends StatefulWidget {
   final String? initialText;
@@ -389,8 +389,12 @@ class _DictationScreenState extends State<DictationScreen> {
         mismatchedPairs: analysis.mismatchedPairs,
       );
       
-      // Sync with Firebase
-      FirebaseAuthService().syncProgress(result.progress);
+      // Sync the award to the cloud account (fire-and-forget).
+      AuthService.instance.pushProgress(
+        xpDelta: result.xpEarned,
+        dictationDelta: 1,
+        source: 'dictation',
+      );
       
       if (!mounted) {
         return;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:smart_student_ai/database_service.dart';
 import 'package:smart_student_ai/app_strings.dart';
-import 'package:smart_student_ai/firebase_auth_service.dart';
+import 'package:smart_student_ai/auth_service.dart';
 
 class InteractiveQuizDialog extends StatefulWidget {
   const InteractiveQuizDialog({
@@ -335,8 +335,11 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
         try {
           final result = await DatabaseService.instance.recordQuizAnswer(true);
           
-          // Sync with Firebase
-          FirebaseAuthService().syncProgress(result.progress);
+          // Sync the award to the cloud account (fire-and-forget).
+          AuthService.instance.pushProgress(
+            xpDelta: result.xpEarned,
+            source: 'quiz',
+          );
 
           if (mounted && result.xpEarned > 0) {
             final strings = AppStrings.of(context);

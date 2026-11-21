@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:local_notifier/local_notifier.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter_timezone/flutter_timezone.dart';
-import 'dart:io';
-import 'package:local_notifier/local_notifier.dart';
 
 class NotificationService {
   NotificationService._();
@@ -18,6 +21,11 @@ class NotificationService {
   bool _isInitialized = false;
   Future<void>? _initFuture;
 
+  static const String _prefsKey = 'scheduled_desktop_reminders_v1';
+
+  /// How overdue a reminder may be at startup and still be delivered once.
+  static const Duration _catchUpWindow = Duration(hours: 1);
+
   Future<void> initialize() async {
     if (_isInitialized) return;
     _initFuture ??= _doInitialize();
@@ -26,7 +34,7 @@ class NotificationService {
 
   Future<void> _doInitialize() async {
     if (_isInitialized) return;
-    
+
     try {
       tz.initializeTimeZones();
 
@@ -38,11 +46,9 @@ class NotificationService {
         final raw = result.toString();
         debugPrint('NotificationService: raw timezone result = "$raw"');
 
-        // If it's a plain IANA string like "Europe/Paris", use it directly
         if (raw.contains('/') && !raw.contains('(')) {
           timeZoneName = raw.trim();
         } else {
-          // Parse from "TimezoneInfo(Europe/Paris, ...)" or similar
           final match = RegExp(r'([A-Za-z]+/[A-Za-z_]+)').firstMatch(raw);
           if (match != null) {
             timeZoneName = match.group(1)!;
@@ -60,10 +66,12 @@ class NotificationService {
         tz.setLocalLocation(tz.UTC);
       }
 
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        await localNotifier.setup(
-          appName: 'Smart Student AI',
-        );
+      if (_isDesktop) {
+        try {
+          await localNotifier.setup(appName: 'Smart Student AI');
+        } catch (e) {
+          debugPrint('NotificationService: localNotifier.setup failed: $e');
+        }
       }
 
       const androidSettings = AndroidInitializationSettings('@mipmap/launcher_icon');
@@ -81,10 +89,10 @@ class NotificationService {
         },
       );
 
-      // Handle Android 13+ permissions
       if (Platform.isAndroid) {
-        final androidPlugin = _notifications.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+        final androidPlugin =
+            _notifications.resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>();
         if (androidPlugin != null) {
           debugPrint('NotificationService: Requesting Android permissions...');
           await androidPlugin.requestNotificationsPermission();
@@ -97,11 +105,72 @@ class NotificationService {
       }
 
       _isInitialized = true;
+
+      // Restore any reminders scheduled before the app was restarted.
+      if (_isDesktop) {
+        await _restoreDesktopReminders();
+      }
     } catch (e) {
       debugPrint('NotificationService: Initialization failed: $e');
     }
   }
 
+  bool get _isDesktop => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  Future<void> _restoreDesktopReminders() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) return;
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+
+      final now = DateTime.now();
+      final restored = <_DesktopReminder>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final reminder = _DesktopReminder.fromMap(Map<String, dynamic>.from(item));
+        if (reminder.time.isAfter(now)) {
+          restored.add(reminder);
+        } else if (now.difference(reminder.time) <= _catchUpWindow) {
+          // Deliver reminders that were missed while the app was closed, once.
+          restored.add(reminder.._deliverOnFirstCheck = true);
+        }
+      }
+
+      if (restored.isEmpty) {
+        await prefs.remove(_prefsKey);
+        return;
+      }
+
+      _desktopReminders
+        ..clear()
+        ..addAll(restored);
+      debugPrint('NotificationService: restored ${restored.length} reminder(s)');
+      _startDesktopTimer();
+    } catch (e) {
+      debugPrint('NotificationService: failed to restore reminders: $e');
+    }
+  }
+
+  Future<void> _persistDesktopReminders() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_desktopReminders.isEmpty) {
+        await prefs.remove(_prefsKey);
+        return;
+      }
+      await prefs.setString(
+        _prefsKey,
+        jsonEncode(_desktopReminders.map((r) => r.toMap()).toList()),
+      );
+    } catch (e) {
+      debugPrint('NotificationService: failed to persist reminders: $e');
+    }
+  }
+
+  /// Schedules a reminder [reminderMinutes] before [dueDate].
   Future<bool> scheduleTaskReminder({
     required int id,
     required String title,
@@ -109,17 +178,17 @@ class NotificationService {
     required int reminderMinutes,
   }) async {
     final scheduledDate = dueDate.subtract(Duration(minutes: reminderMinutes));
-    
+
     if (scheduledDate.isBefore(DateTime.now())) {
-      return false; // Cannot schedule in the past
+      debugPrint('NotificationService: reminder time $scheduledDate is in the past; skipping.');
+      return false;
     }
 
     if (!_isInitialized) {
       await initialize();
     }
 
-    if (Platform.isWindows || Platform.isLinux) {
-      // Manual scheduling for Desktop since zonedSchedule is not implemented
+    if (_isDesktop) {
       _desktopReminders.removeWhere((r) => r.id == id);
       _desktopReminders.add(_DesktopReminder(
         id: id,
@@ -127,10 +196,23 @@ class NotificationService {
         description: 'Your task "$title" is due soon!',
         time: scheduledDate,
       ));
-      debugPrint('NotificationService: Scheduled for Windows/Desktop at $scheduledDate (ID: $id)');
+      await _persistDesktopReminders();
+      debugPrint('NotificationService: scheduled desktop reminder at $scheduledDate (ID: $id)');
       _startDesktopTimer();
       return true;
     }
+
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'task_reminders',
+        'Task Reminders',
+        channelDescription: 'Notifications for student tasks and reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        showWhen: true,
+      ),
+      iOS: DarwinNotificationDetails(),
+    );
 
     try {
       await _notifications.zonedSchedule(
@@ -138,79 +220,67 @@ class NotificationService {
         'Task Reminder',
         'Your task "$title" is due soon!',
         tz.TZDateTime.from(scheduledDate, tz.local),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'task_reminders',
-            'Task Reminders',
-            channelDescription: 'Notifications for student tasks and reminders',
-            importance: Importance.max,
-            priority: Priority.high,
-            showWhen: true,
-          ),
-          iOS: DarwinNotificationDetails(),
-        ),
+        details,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      debugPrint('NotificationService: Scheduled exact reminder for Android at $scheduledDate (ID: $id)');
+      debugPrint('NotificationService: scheduled exact reminder at $scheduledDate (ID: $id)');
     } catch (e) {
-      debugPrint('NotificationService: Failed to schedule exact reminder, falling back to inexact: $e');
-      // Fallback to inexact scheduling if exact fails (common on Android 12+ if permission not granted)
+      debugPrint('NotificationService: exact scheduling failed, falling back: $e');
       await _notifications.zonedSchedule(
         id,
         'Task Reminder',
         'Your task "$title" is due soon!',
         tz.TZDateTime.from(scheduledDate, tz.local),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'task_reminders',
-            'Task Reminders',
-            channelDescription: 'Notifications for student tasks and reminders',
-            importance: Importance.max,
-            priority: Priority.high,
-            showWhen: true,
-          ),
-          iOS: DarwinNotificationDetails(),
-        ),
+        details,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      debugPrint('NotificationService: Scheduled inexact reminder for Android at $scheduledDate (ID: $id)');
     }
     return true;
   }
 
   void _startDesktopTimer() {
     _desktopTimer?.cancel();
-    _desktopTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      final now = DateTime.now();
-      debugPrint('NotificationService: Checking ${_desktopReminders.length} reminders at $now');
-      final toRemove = <int>[];
-
-      for (final reminder in _desktopReminders) {
-        if (reminder.time.isBefore(now)) {
-          debugPrint('NotificationService: Triggering reminder "${reminder.title}"');
-          _showImmediateNotification(
-            id: reminder.id,
-            title: 'Task Reminder',
-            body: reminder.description,
-          );
-          toRemove.add(reminder.id);
-        }
-      }
-
-      for (final id in toRemove) {
-        _desktopReminders.removeWhere((r) => r.id == id);
-      }
-
-      if (_desktopReminders.isEmpty) {
-        debugPrint('NotificationService: No more reminders, stopping timer.');
-        _desktopTimer?.cancel();
-        _desktopTimer = null;
-      }
+    if (_desktopReminders.isEmpty) {
+      _desktopTimer = null;
+      return;
+    }
+    _desktopTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _checkDesktopReminders();
     });
+    // Also run an immediate check so overdue items fire right away.
+    _checkDesktopReminders();
+  }
+
+  void _checkDesktopReminders() {
+    final now = DateTime.now();
+    final toRemove = <int>[];
+
+    for (final reminder in _desktopReminders) {
+      final due = reminder._deliverOnFirstCheck || !reminder.time.isAfter(now);
+      if (due) {
+        debugPrint('NotificationService: triggering reminder "${reminder.title}"');
+        _showImmediateNotification(
+          id: reminder.id,
+          title: 'Task Reminder',
+          body: reminder.description,
+        );
+        toRemove.add(reminder.id);
+      }
+    }
+
+    if (toRemove.isNotEmpty) {
+      _desktopReminders.removeWhere((r) => toRemove.contains(r.id));
+      _persistDesktopReminders();
+    }
+
+    if (_desktopReminders.isEmpty) {
+      _desktopTimer?.cancel();
+      _desktopTimer = null;
+    }
   }
 
   Future<void> _showImmediateNotification({
@@ -218,32 +288,46 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      LocalNotification notification = LocalNotification(
-        identifier: id.toString(),
-        title: title,
-        body: body,
-      );
-      notification.show();
+    if (_isDesktop) {
+      try {
+        final notification = LocalNotification(
+          identifier: id.toString(),
+          title: title,
+          body: body,
+        );
+        await notification.show();
+      } catch (e) {
+        debugPrint('NotificationService: failed to show desktop notification: $e');
+      }
       return;
     }
 
-    await _notifications.show(
-      id,
-      title,
-      body,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'task_reminders',
-          'Task Reminders',
+    try {
+      await _notifications.show(
+        id,
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails('task_reminders', 'Task Reminders'),
+          iOS: DarwinNotificationDetails(),
         ),
-        iOS: DarwinNotificationDetails(),
-      ),
-    );
+      );
+    } catch (e) {
+      debugPrint('NotificationService: failed to show notification: $e');
+    }
   }
+
+  /// Shows a notification immediately. Handy for testing / confirmations.
+  Future<void> showNow({
+    required String title,
+    required String body,
+    int id = 0,
+  }) =>
+      _showImmediateNotification(id: id, title: title, body: body);
 
   Future<void> cancelReminder(int id) async {
     _desktopReminders.removeWhere((r) => r.id == id);
+    await _persistDesktopReminders();
     if (_isInitialized) {
       try {
         await _notifications.cancel(id);
@@ -266,4 +350,21 @@ class _DesktopReminder {
   final String title;
   final String description;
   final DateTime time;
+
+  /// Set for reminders that were missed while the app was closed.
+  bool _deliverOnFirstCheck = false;
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'title': title,
+        'description': description,
+        'time': time.toIso8601String(),
+      };
+
+  factory _DesktopReminder.fromMap(Map<String, dynamic> map) => _DesktopReminder(
+        id: (map['id'] as num?)?.toInt() ?? 0,
+        title: (map['title'] ?? '').toString(),
+        description: (map['description'] ?? '').toString(),
+        time: DateTime.tryParse((map['time'] ?? '').toString()) ?? DateTime.now(),
+      );
 }

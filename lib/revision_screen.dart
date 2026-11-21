@@ -9,7 +9,7 @@ import 'package:smart_student_ai/text_normalizer.dart';
 import 'package:smart_student_ai/database_service.dart';
 import 'package:smart_student_ai/app_customization_panel.dart';
 import 'package:smart_student_ai/student_progress_card.dart';
-import 'package:smart_student_ai/firebase_auth_service.dart';
+import 'package:smart_student_ai/auth_service.dart';
 
 part 'revision_question_bank.dart';
 
@@ -405,8 +405,12 @@ class _RevisionScreenState extends State<RevisionScreen> {
         _progress = result.progress;
       });
       
-      // Sync with Firebase
-      FirebaseAuthService().syncProgress(result.progress);
+      // Sync the award to the cloud account (fire-and-forget).
+      AuthService.instance.pushProgress(
+        xpDelta: result.xpEarned,
+        revisionDelta: 1,
+        source: 'revision',
+      );
 
       if (result.xpEarned > 0 || result.leveledUp) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -449,8 +453,11 @@ class _RevisionScreenState extends State<RevisionScreen> {
       await preferences.setInt(_bestScoreKey, updatedBestScore);
       await preferences.setInt(_sessionsKey, updatedSessions);
       
-      // Sync with Firebase
-      await FirebaseAuthService().updateBestScore(updatedBestScore);
+      // Sync the best score to the cloud account (fire-and-forget).
+      AuthService.instance.pushProgress(
+        bestScore: updatedBestScore,
+        source: 'revision_score',
+      );
       if (!mounted) {
         return;
       }
