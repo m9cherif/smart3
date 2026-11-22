@@ -311,7 +311,7 @@ function o_groq_vision(string $dataUri, string $lang, string $apiKey, int $timeo
     $prompt = 'Read this image and return ONLY the text it contains, exactly as written, preserving line breaks. '
         . 'Do not translate, summarise or add commentary. The text is most likely in ' . $langName . '.';
     $payload = json_encode([
-        'model' => 'meta-llama/llama-4-scout-17b-16e-instruct',
+        'model' => 'qwen/qwen3.8-27b',
         'temperature' => 0,
         'messages' => [[
             'role' => 'user',
@@ -386,7 +386,7 @@ function o_providers(array $config): array
     $groq = trim((string) ($config['keys']['groq'] ?? ''));
     if ($groq !== '') {
         $p[] = [
-            'id' => 'groq-vision', 'label' => 'Groq · Llama 4 Scout vision',
+            'id' => 'groq-vision', 'label' => 'Groq · Qwen 3.8 vision',
             'tier' => 'server-key', 'timeout' => 30, 'priority' => 40,
         ];
     }
@@ -564,6 +564,11 @@ foreach ($providers as $p) {
 
     // A strong keyless result is enough: stop paying for more requests.
     if ($score >= OCR_GOOD_ENOUGH && $p['tier'] === 'keyless') {
+        break;
+    }
+    // Once two keyless engines agree on a plausible text, extra providers only
+    // add latency (the server-keyed vision model is a last resort).
+    if ($p['tier'] === 'keyless' && count($candidates) >= 2 && $score >= 220) {
         break;
     }
 }
