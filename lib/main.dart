@@ -111,6 +111,7 @@ class _SmartStudentAppState extends State<SmartStudentApp> {
         builder: (context, child) {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
+            scaffoldMessengerKey: NotificationService.instance.messengerKey,
             onGenerateTitle: (context) => AppStrings.of(context).appName,
             theme: _controller.themeData,
             locale: _controller.locale,

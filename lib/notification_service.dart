@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -20,6 +19,11 @@ class NotificationService {
   Timer? _desktopTimer;
   bool _isInitialized = false;
   Future<void>? _initFuture;
+
+  /// Key handed to [MaterialApp.scaffoldMessengerKey] so reminders can be shown
+  /// as an in-app banner even when the OS suppresses toast notifications.
+  final GlobalKey<ScaffoldMessengerState> messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
 
   static const String _prefsKey = 'scheduled_desktop_reminders_v1';
 
@@ -289,6 +293,10 @@ class NotificationService {
     required String body,
   }) async {
     if (_isDesktop) {
+      // Windows/macOS toasts can be disabled system-wide (e.g. Windows
+      // "Notifications" master switch, Focus Assist). Always surface the
+      // reminder inside the app too, so it is never silently lost.
+      _showInAppBanner(title: title, body: body);
       try {
         final notification = LocalNotification(
           identifier: id.toString(),
@@ -324,6 +332,48 @@ class NotificationService {
     int id = 0,
   }) =>
       _showImmediateNotification(id: id, title: title, body: body);
+
+  /// Presents a reminder as a floating in-app banner. This is the fallback that
+  /// keeps reminders working when OS toasts are disabled or unavailable.
+  void _showInAppBanner({required String title, required String body}) {
+    final messenger = messengerKey.currentState;
+    if (messenger == null) {
+      debugPrint('NotificationService: no ScaffoldMessenger yet; banner skipped');
+      return;
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 10),
+          margin: const EdgeInsets.all(16),
+          content: Row(
+            children: <Widget>[
+              const Icon(Icons.notifications_active_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(body, style: const TextStyle(fontSize: 12.5)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'Dismiss',
+            onPressed: messenger.hideCurrentSnackBar,
+          ),
+        ),
+      );
+  }
 
   Future<void> cancelReminder(int id) async {
     _desktopReminders.removeWhere((r) => r.id == id);
