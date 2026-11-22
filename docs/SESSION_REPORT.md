@@ -21,7 +21,9 @@ Files: `site_smart/auth.php`, `lib/auth_service.dart` (`AuthResult.requiresOtp`,
 
 Verified live with curl against `https://smart.chrif.net/auth`:
 register → verify → login (`requires_otp`) → emailed code → `login_verify` → token;
-reused code rejected.
+reused code rejected. Re-checked after the 17:00 deploy: `/auth/login` answered
+`requires_otp` + `mail_sent`, the code from the mailbox produced a token for
+user 4, and replaying it answered `no_otp`.
 
 ## 2. Redesigned UI
 
@@ -74,7 +76,9 @@ Verified live: `POST /ocr` with `test_ocr.png` returned the correct text in
   SM-A065F (Android 16) and started successfully — the redesigned sign-in
   screen renders.
 - **Windows release:** `build/windows/x64/runner/Release/`, portable, bundled
-  VC++ runtime + UCRT.
+  VC++ runtime + UCRT; packaged as `dist/SmartStudentAI-Windows-x64.zip`
+  (**16.6 MB**, down from 19.0 MB thanks to the pruned plugins).
+- Phone artifact: `dist/SmartStudentAI-1.0.0-arm64.apk` (23.7 MB).
 
 Two build-environment bugs had to be fixed to get there (committed):
 `android/gradle.properties` asked for `-Xmx8G -XX:MaxMetaspaceSize=4G` on an
