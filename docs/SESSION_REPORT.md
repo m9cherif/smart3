@@ -67,6 +67,22 @@ Verified live: `POST /ocr` with `test_ocr.png` returned the correct text in
 - `tool/sign_windows.ps1` + `docs/WINDOWS_SIGNING.md` explain how to remove the
   SmartScreen “protected your PC” prompt.
 
+## 7. Builds produced
+
+- **Android release:** `build/app/outputs/flutter-apk/app-release.apk`, **23.7 MB**,
+  single arm64 ABI, R8-shrunk. Installed with `adb install -r` on the
+  SM-A065F (Android 16) and started successfully — the redesigned sign-in
+  screen renders.
+- **Windows release:** `build/windows/x64/runner/Release/`, portable, bundled
+  VC++ runtime + UCRT.
+
+Two build-environment bugs had to be fixed to get there (committed):
+`android/gradle.properties` asked for `-Xmx8G -XX:MaxMetaspaceSize=4G` on an
+8 GB machine, which made the Gradle daemon die with a native out-of-memory;
+and the Kotlin incremental caches under `build/` failed to close on Windows
+(`Could not close incremental caches`). The heap is now 2.5 GB (Kotlin daemon
+1.3 GB) and Kotlin incremental compilation is off for release.
+
 ## Known limitation
 
 The SmartScreen prompt can only be removed for real with a **trusted
@@ -75,11 +91,16 @@ disappear on your own machine only. See `docs/WINDOWS_SIGNING.md`.
 
 ## Open items / TODO
 
-- [ ] Install the release APK on the phone and smoke-test: sign-in (email →
-      password → emailed code), dictation passage preview (Proceed / Edit),
-      OCR from a gallery image.
+- [ ] **On-device smoke test is blocked:** after the phone reboot, Android
+      turned wireless debugging off, so `adb` cannot reach it. Re-enable
+      *Developer options → Wireless debugging* on the phone (or plug in USB)
+      and the APK is already installed — only the walkthrough is left:
+      sign-in (email → password → emailed code), dictation passage preview
+      (Proceed / Edit), OCR from a gallery image.
 - [ ] Confirm the shrinker did not strip anything needed at runtime (R8).
+      Startup and the sign-in screen were verified; the rest of the flows
+      still need the device test above.
 - [ ] Confirm the 17:00 server cron redeployed `/ocr` with the early-exit +
       Qwen model change.
-- [ ] Rebuild the Windows Release + zip after the dependency pruning.
+- [ ] Zip the rebuilt Windows release into `dist/`.
 - [ ] Optional: buy/install a trusted code-signing certificate for Windows.
