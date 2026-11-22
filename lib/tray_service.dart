@@ -31,9 +31,7 @@ class TrayService extends WindowListener with TrayListener {
 
   Future<void> _initTray() async {
     try {
-      String iconPath = Platform.isWindows ? 'logo.ico' : 'logo.png';
-      // In some environments, the path needs careful handling.
-      await trayManager.setIcon(iconPath);
+      await trayManager.setIcon(_trayIconPath());
     } catch (_) {
       // If icon load fails, try alternate path or continue without icon
     }
@@ -56,6 +54,24 @@ class TrayService extends WindowListener with TrayListener {
       ];
       await trayManager.setContextMenu(Menu(items: items));
     } catch (_) {}
+  }
+
+  /// Resolves the tray icon for both development and packaged (portable) runs.
+  ///
+  /// Release builds ship `logo.ico` / `logo.png` next to the executable, while
+  /// `flutter run` keeps them in the project root (the current directory).
+  String _trayIconPath() {
+    final name = Platform.isWindows ? 'logo.ico' : 'logo.png';
+    try {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final beside = '$exeDir${Platform.pathSeparator}$name';
+      if (File(beside).existsSync()) {
+        return beside;
+      }
+    } catch (_) {
+      // Fall through to the development path.
+    }
+    return name;
   }
 
   @override

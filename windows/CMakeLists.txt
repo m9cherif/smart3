@@ -72,7 +72,22 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+# === Bundle the Visual C++ runtime ===
+# A Release build links against the VC++ runtime (msvcp140.dll,
+# vcruntime140.dll, ...). Those DLLs are NOT present on a clean Windows
+# install, so copy them next to the executable to keep the app fully portable.
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "${CMAKE_INSTALL_PREFIX}")
+set(CMAKE_INSTALL_UCRT_LIBRARIES TRUE)
+include(InstallRequiredSystemLibraries)
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+# Tray icon used at runtime; shipped next to the executable for portable builds.
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../logo.ico"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../logo.png"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
