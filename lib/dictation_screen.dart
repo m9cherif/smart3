@@ -15,6 +15,8 @@ import 'package:smart_student_ai/app_customization_panel.dart';
 import 'package:smart_student_ai/ai_service.dart';
 import 'package:smart_student_ai/auth_service.dart';
 
+enum _PassageChoice { proceed, edit }
+
 class DictationScreen extends StatefulWidget {
   final String? initialText;
   const DictationScreen({super.key, this.initialText});
@@ -189,7 +191,7 @@ class _DictationScreenState extends State<DictationScreen> {
       
       if (isImage) {
         debugPrint('Starting OCR for image: $path');
-        _currentOCRTask = _ocrService.readText(path);
+        _currentOCRTask = _ocrService.readText(path, language: _languageCode());
         text = await _currentOCRTask!;
       } else {
         debugPrint('Extracting text from document: $path');
@@ -202,21 +204,61 @@ class _DictationScreenState extends State<DictationScreen> {
         return;
       }
 
-      setState(() {
-        _sourceText = text;
-        _isFromHub = false;
-        _spokenText = '';
-        _analysis = null;
-        _statusMessage = text.isEmpty
-            ? strings.dictationNoTextDetected
-            : strings.dictationPassageLoaded;
-      });
-      if (text.isEmpty && mounted) {
-        // also show a snack bar so the user notices immediately
+      if (text.trim().isEmpty) {
+        setState(() {
+          _sourceText = '';
+          _isFromHub = false;
+          _spokenText = '';
+          _analysis = null;
+          _statusMessage = strings.dictationNoTextDetected;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(strings.dictationNoTextDetected)),
         );
+        return;
       }
+
+      // Let the AI reduce the detected text to the best dictatable passage,
+      // then show it to the user before anything is loaded.
+      setState(() => _statusMessage = strings.dictationChoosingPassage);
+
+      final passage = await AIService.chooseDictationPassage(
+        text,
+        language: _languageCode(),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      final choice = await _showPassagePreview(passage);
+      if (!mounted) {
+        return;
+      }
+
+      if (choice == null) {
+        setState(() => _statusMessage = strings.dictationPreviewCancelled);
+        return;
+      }
+
+      if (choice == _PassageChoice.edit) {
+        setState(() {
+          _sourceText = passage.passage;
+          _isFromHub = false;
+          _spokenText = '';
+          _analysis = null;
+          _statusMessage = '';
+        });
+        await _openManualTextEntry();
+        return;
+      }
+
+      setState(() {
+        _sourceText = passage.passage;
+        _isFromHub = false;
+        _spokenText = '';
+        _analysis = null;
+        _statusMessage = strings.dictationPassageLoaded;
+      });
     } on UnsupportedError {
       if (!mounted) {
         return;
@@ -241,6 +283,189 @@ class _DictationScreenState extends State<DictationScreen> {
         });
       }
     }
+  }
+
+  String _languageCode() {
+    switch (AppScope.of(context).language) {
+      case AppLanguage.arabic:
+        return 'ar';
+      case AppLanguage.french:
+        return 'fr';
+      case AppLanguage.english:
+        return 'en';
+    }
+  }
+
+  /// Shows the AI-chosen passage and asks the user to proceed or edit it.
+  Future<_PassageChoice?> _showPassagePreview(DictationPassage passage) {
+    final strings = AppStrings.of(context);
+
+    return showDialog<_PassageChoice>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final scheme = theme.colorScheme;
+
+        return AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 4, 20, 18),
+          title: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      scheme.primary,
+                      scheme.primary.withValues(alpha: 0.72),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(
+                  passage.chosenByAi
+                      ? Icons.auto_awesome_rounded
+                      : Icons.article_outlined,
+                  color: scheme.onPrimary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      strings.dictationPreviewTitle,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      passage.chosenByAi
+                          ? strings.dictationChosenByAi
+                          : strings.dictationChosenFromText,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 560,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  strings.dictationPreviewSubtitle,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest
+                        .withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: scheme.outline.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 300),
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        passage.passage,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          height: 1.65,
+                          fontSize: 15.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.text_fields_rounded,
+                              size: 14, color: scheme.primary),
+                          const SizedBox(width: 5),
+                          Text(
+                            '${passage.characterCount} ${strings.dictationCharacters}',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: scheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (passage.title.isNotEmpty)
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 320),
+                        child: Text(
+                          passage.title,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_PassageChoice.edit),
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: Text(strings.dictationEdit),
+            ),
+            FilledButton.icon(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_PassageChoice.proceed),
+              icon: const Icon(Icons.play_arrow_rounded, size: 20),
+              label: Text(strings.dictationProceed),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _cancelOCRProcessing() {

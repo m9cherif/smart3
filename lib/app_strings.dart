@@ -593,6 +593,51 @@ class AppStrings {
     ar: 'تم تحميل النص. يمكنك الان تسجيل التلميذ.',
   );
 
+  String get dictationChoosingPassage => _pick(
+    en: 'AI is reading the detected text and choosing the best passage to dictate...',
+    fr: 'L IA lit le texte detecte et choisit le meilleur passage a dicter...',
+    ar: 'يقرأ الذكاء الاصطناعي النص المكتشف ويختار افضل مقطع للاملاء...',
+  );
+
+  String get dictationPreviewTitle => _pick(
+    en: 'AI picked your passage',
+    fr: 'L IA a choisi ton passage',
+    ar: 'اختار الذكاء الاصطناعي المقطع',
+  );
+
+  String get dictationPreviewSubtitle => _pick(
+    en: 'Review the passage below. Proceed to dictate it, or edit it first.',
+    fr: 'Lis le passage ci-dessous. Continue pour le dicter, ou modifie-le d abord.',
+    ar: 'راجع المقطع ادناه. تابع لاملائه او عدّله اولاً.',
+  );
+
+  String get dictationChosenByAi => _pick(
+    en: 'Chosen by AI from the detected text',
+    fr: 'Choisi par l IA depuis le texte detecte',
+    ar: 'اختاره الذكاء الاصطناعي من النص المكتشف',
+  );
+
+  String get dictationChosenFromText => _pick(
+    en: 'Selected from the detected text',
+    fr: 'Selectionne depuis le texte detecte',
+    ar: 'مختار من النص المكتشف',
+  );
+
+  String get dictationProceed =>
+      _pick(en: 'Proceed', fr: 'Continuer', ar: 'متابعة');
+
+  String get dictationEdit =>
+      _pick(en: 'Edit', fr: 'Modifier', ar: 'تعديل');
+
+  String get dictationPreviewCancelled => _pick(
+    en: 'Import cancelled. Nothing was loaded.',
+    fr: 'Import annule. Rien n a ete charge.',
+    ar: 'تم الغاء الاستيراد. لم يتم تحميل شيء.',
+  );
+
+  String get dictationCharacters =>
+      _pick(en: 'characters', fr: 'caracteres', ar: 'حرفاً');
+
   String get dictationRecognitionFailed => _pick(
     en: 'Text recognition failed. Try again with a sharper, well-lit image.',
     fr: 'La reconnaissance du texte a echoue. Essaie avec une image plus nette.',
@@ -606,9 +651,9 @@ class AppStrings {
   );
 
   String get dictationOcrSupportNote => _pick(
-    en: 'Image OCR works best with clear, high‑contrast text. The app first tries ML Kit and then falls back to Tesseract if needed; if recognition still fails you can type or load a text file instead.',
-    fr: 'La reconnaissance d image fonctionne mieux avec un texte clair et contrasté. L app utilise d abord ML Kit puis Tesseract en secours ; si cela échoue toujours, tu peux taper ou charger un fichier texte.',
-    ar: 'يعمل OCR على الصور بشكل أفضل مع نص واضح وعالي التباين. يحاول التطبيق أولاً ML Kit ثم ينتقل إلى Tesseract إذا لزم الأمر؛ إذا فشلت العملية، يمكنك كتابة النص أو تحميل ملف نصي.',
+    en: 'Photos go through our OCR service, which automatically picks the best free recognition engine for the image. Clear, high-contrast photos work best; if nothing is detected you can type or load a text file instead.',
+    fr: 'Les photos passent par notre service OCR, qui choisit automatiquement le meilleur moteur de reconnaissance gratuit. Les images nettes et contrastées fonctionnent mieux ; si rien n est détecté, tu peux saisir ou charger un fichier texte.',
+    ar: 'تمر الصور عبر خدمة OCR التي تختار تلقائياً أفضل محرك تعرف مجاني للصورة. تعمل الصور الواضحة وعالية التباين بشكل أفضل؛ وإذا لم يتم اكتشاف نص يمكنك الكتابة أو تحميل ملف نصي.',
   );
 
   String get dictationLoadBeforeRecording => _pick(

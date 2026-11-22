@@ -567,4 +567,218 @@ class AIService {
 
   static List<Map<String, dynamic>> get lastGeneratedQuiz => _lastGeneratedQuiz;
   static String get lastGeneratedSummary => _lastGeneratedSummary;
+
+  /* ------------------------------------------------------------------ */
+  /* Dictation passage selection                                        */
+  /* ------------------------------------------------------------------ */
+
+  /// Asks the AI to choose the best dictatable excerpt from freshly detected
+  /// text (OCR or document import).
+  ///
+  /// The passage is copied verbatim — the model is instructed not to rewrite,
+  /// translate or paraphrase. When the text is short it is used as-is, and a
+  /// deterministic heuristic is used if the AI call fails.
+  static Future<DictationPassage> chooseDictationPassage(
+    String text, {
+    String language = 'en',
+    int targetChars = 650,
+  }) async {
+    final cleaned = _tidySourceText(text);
+    if (cleaned.isEmpty) {
+      return DictationPassage.empty();
+    }
+
+    // Short extracts are already a good dictation exercise.
+    if (cleaned.length <= 900) {
+      return DictationPassage(
+        title: _passageTitle(cleaned),
+        passage: cleaned,
+        chosenByAi: false,
+        note: 'The whole detected text is short enough to dictate as-is.',
+      );
+    }
+
+    final langName = switch (language) {
+      'ar' => 'Arabic',
+      'fr' => 'French',
+      _ => 'English',
+    };
+    final minChars = (targetChars * 0.65).round();
+    final maxChars = (targetChars * 1.5).round();
+
+    const system = 'You prepare dictation exercises for students. '
+        'You copy text exactly and never rewrite, translate, summarise or paraphrase it. '
+        'You output strict JSON and nothing else.';
+
+    final prompt = '''
+From the SOURCE TEXT below, choose the single best continuous passage for a
+dictation exercise in $langName.
+
+Rules:
+- Copy the passage verbatim from the source: same spelling, accents, punctuation and wording.
+- It must be a continuous excerpt (no gaps, no ellipses, no added words).
+- It must read as a self-contained, meaningful piece.
+- Prefer clear prose sentences. Skip tables, page numbers, headers/footers, URLs,
+  formulas, references, footnotes and repeated nav text.
+- Aim for roughly $targetChars characters (between $minChars and $maxChars).
+- Never add commentary or translations.
+
+Return JSON only, exactly this shape:
+{"title":"short 3-6 word label","passage":"the excerpt copied verbatim"}
+
+SOURCE TEXT:
+$cleaned
+''';
+
+    DictationPassage? result;
+
+    try {
+      final raw = await _chatCompletionText(
+        messages: [
+          {'role': 'system', 'content': system},
+          {'role': 'user', 'content': prompt},
+        ],
+        maxTokens: 1800,
+        temperature: 0.1,
+      );
+
+      final parsed = _extractJsonObject(raw);
+      final passage = (parsed?['passage'] ?? '').toString().trim();
+      final title = (parsed?['title'] ?? '').toString().trim();
+      if (passage.length >= 80 && _looksLikeRealText(passage)) {
+        result = DictationPassage(
+          title: title.isEmpty ? _passageTitle(passage) : title,
+          passage: passage,
+          chosenByAi: true,
+          note: 'AI selected this passage from the detected text.',
+        );
+      }
+    } catch (e) {
+      debugPrint('AIService: passage selection failed: $e');
+    }
+
+    result ??= DictationPassage(
+      title: _passageTitle(cleaned),
+      passage: _heuristicPassage(cleaned, targetChars: targetChars),
+      chosenByAi: false,
+      note: 'Selected from the detected text.',
+    );
+
+    return result;
+  }
+
+  /// Normalises OCR output before it is shown or sent to a model.
+  static String _tidySourceText(String text) {
+    var out = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    out = out.replaceAll(RegExp(r'[ \t]+'), ' ');
+    out = out.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+    return out.trim();
+  }
+
+  static bool _looksLikeRealText(String text) {
+    final letters = RegExp(r'[\p{L}\p{N}]', unicode: true).allMatches(text).length;
+    if (letters < 60) return false;
+    final ratio = letters / text.length;
+    return ratio > 0.55;
+  }
+
+  static String _passageTitle(String text) {
+    final firstLine = text
+        .split('\n')
+        .map((l) => l.trim())
+        .firstWhere((l) => l.isNotEmpty, orElse: () => '');
+    final words = firstLine.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).take(6);
+    final title = words.join(' ');
+    if (title.isEmpty) return 'Dictation passage';
+    return title.length > 48 ? '${title.substring(0, 45)}…' : title;
+  }
+
+  /// Deterministic fallback: picks a run of full sentences close to the target
+  /// length, preferring paragraphs made of prose.
+  static String _heuristicPassage(String text, {int targetChars = 650}) {
+    final paragraphs = text
+        .split(RegExp(r'\n\s*\n'))
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+
+    final candidates = paragraphs.isNotEmpty ? paragraphs : [text];
+
+    // Score paragraphs: prose-like, reasonable length, no link/number noise.
+    double score(String p) {
+      final letters =
+          RegExp(r'[\p{L}]', unicode: true).allMatches(p).length.toDouble();
+      final digits =
+          RegExp(r'[0-9]').allMatches(p).length.toDouble();
+      final punctuation =
+          RegExp(r'[.,!?;:…؟،]').allMatches(p).length.toDouble();
+      var s = letters + punctuation * 6 - digits * 4;
+      if (p.length < 120) s -= 80;
+      if (p.length > 1600) s -= 120;
+      return s;
+    }
+
+    candidates.sort((a, b) => score(b).compareTo(score(a)));
+    var chosen = candidates.first;
+
+    if (chosen.length > targetChars * 1.35) {
+      // Trim on a sentence boundary near the target length.
+      final sentences = chosen.split(RegExp(r'(?<=[.!?؟])\s+'));
+      final buffer = StringBuffer();
+      for (final sentence in sentences) {
+        if (buffer.length + sentence.length > targetChars && buffer.isNotEmpty) {
+          break;
+        }
+        if (buffer.isNotEmpty) buffer.write(' ');
+        buffer.write(sentence);
+      }
+      if (buffer.isNotEmpty) chosen = buffer.toString();
+    }
+
+    return chosen.trim();
+  }
+
+  /// Pulls the first JSON object out of a model response (tolerates fences).
+  static Map<String, dynamic>? _extractJsonObject(String raw) {
+    var text = raw.trim();
+    if (text.startsWith('```')) {
+      text = text.replaceFirst(RegExp(r'^```[a-zA-Z]*\s*'), '');
+      text = text.replaceFirst(RegExp(r'```\s*$'), '');
+    }
+    final start = text.indexOf('{');
+    final end = text.lastIndexOf('}');
+    if (start == -1 || end <= start) return null;
+    try {
+      final decoded = jsonDecode(text.substring(start, end + 1));
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {
+      // Fall through.
+    }
+    return null;
+  }
+}
+
+/// The passage chosen for a dictation session.
+@immutable
+class DictationPassage {
+  const DictationPassage({
+    required this.title,
+    required this.passage,
+    required this.chosenByAi,
+    this.note,
+  });
+
+  factory DictationPassage.empty() => const DictationPassage(
+        title: '',
+        passage: '',
+        chosenByAi: false,
+      );
+
+  final String title;
+  final String passage;
+  final bool chosenByAi;
+  final String? note;
+
+  bool get isEmpty => passage.trim().isEmpty;
+  int get characterCount => passage.trim().length;
 }

@@ -19,6 +19,10 @@ DirectoryIndex index.html
   RewriteRule ^auth/([a-z_-]+)/?$ auth.php?action=$1 [L,QSA]
   RewriteRule ^auth/?$ auth.php [L,QSA]
 
+  # Keyless OCR router
+  RewriteRule ^ocr/?$ ocr.php [L,QSA]
+  RewriteRule ^ocr/providers/?$ ocr.php?action=providers [L,QSA]
+
   RewriteRule ^api/?$ api.php [L,QSA]
 </IfModule>
 

@@ -168,7 +168,8 @@ function a_otp_rate_limited(PDO $pdo, string $email): bool
 
 function a_issue_otp(PDO $pdo, string $email, string $purpose): string
 {
-    $purpose = $purpose === 'reset' ? 'reset' : 'verify';
+    // verify = create account, reset = forgot password, login = sign-in second factor
+    $purpose = in_array($purpose, ['reset', 'login'], true) ? $purpose : 'verify';
     $length = (int) ($GLOBALS['CONFIG']['mail']['otp_length'] ?? 6);
     $ttl = (int) ($GLOBALS['CONFIG']['mail']['otp_ttl'] ?? 600);
     $code = a_gen_code($length);
@@ -192,6 +193,28 @@ function a_issue_otp(PDO $pdo, string $email, string $purpose): string
     return $code;
 }
 
+/**
+ * Validates an OTP for the given purpose and marks it consumed.
+ * Sends the matching error response (and exits) when the code is not valid.
+ */
+function a_consume_otp(PDO $pdo, string $email, string $purpose, string $code): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT * FROM otps WHERE email = ? AND purpose = ? AND consumed = 0 ORDER BY id DESC LIMIT 1'
+    );
+    $stmt->execute([$email, $purpose]);
+    $otp = $stmt->fetch();
+    if (!$otp) a_error('No active code. Please request a new one.', 400, 'no_otp');
+    if (strtotime((string) $otp['expires_at']) < time()) a_error('This code has expired. Request a new one.', 400, 'otp_expired');
+    if ((int) $otp['attempts'] >= 8) a_error('Too many attempts. Request a new code.', 429, 'too_many_attempts');
+    if (!hash_equals((string) $otp['code_hash'], hash('sha256', $code))) {
+        $pdo->prepare('UPDATE otps SET attempts = attempts + 1 WHERE id = ?')->execute([$otp['id']]);
+        a_error('Incorrect code. Please try again.', 400, 'bad_code');
+    }
+    $pdo->prepare('UPDATE otps SET consumed = 1 WHERE id = ?')->execute([$otp['id']]);
+    return $otp;
+}
+
 /** Sends the OTP email. Returns true when the mail transport accepted it. */
 function a_send_otp(string $email, string $code, string $purpose): bool
 {
@@ -199,11 +222,18 @@ function a_send_otp(string $email, string $code, string $purpose): bool
     $fromEmail = (string) ($mail['from_email'] ?? 'no-reply@smart.chrif.net');
     $fromName  = (string) ($mail['from_name'] ?? 'Smart Student AI');
     $isReset   = $purpose === 'reset';
+    $isLogin   = $purpose === 'login';
 
-    $subject = $isReset ? 'Reset your Smart Student AI password' : 'Confirm your Smart Student AI account';
-    $lead = $isReset
-        ? 'Use the code below to reset your password.'
-        : 'Welcome to Smart Student AI! Use the code below to confirm your email address.';
+    if ($isReset) {
+        $subject = 'Reset your Smart Student AI password';
+        $lead = 'Use the code below to reset your password.';
+    } elseif ($isLogin) {
+        $subject = 'Your Smart Student AI sign-in code';
+        $lead = 'Use the code below to finish signing in to your account.';
+    } else {
+        $subject = 'Confirm your Smart Student AI account';
+        $lead = 'Welcome to Smart Student AI! Use the code below to confirm your email address.';
+    }
     $ttlMin = (int) round(((int) ($mail['otp_ttl'] ?? 600)) / 60);
 
     $text = "Smart Student AI\n\n{$lead}\n\nYour code: {$code}\n\n"
@@ -623,7 +653,8 @@ switch ($action) {
     case 'resend': {
         $pdo = a_conn();
         $email = strtolower(a_str($in, 'email'));
-        $purpose = a_str($in, 'purpose', 'verify') === 'reset' ? 'reset' : 'verify';
+        $requested = a_str($in, 'purpose', 'verify');
+        $purpose = in_array($requested, ['reset', 'login'], true) ? $requested : 'verify';
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) a_error('Please enter a valid email address.');
 
         $stmt = $pdo->prepare('SELECT id, verified FROM users WHERE email = ? LIMIT 1');
@@ -632,6 +663,9 @@ switch ($action) {
         if (!$user) a_error('No account found for that email.', 404, 'not_found');
         if ($purpose === 'verify' && (int) $user['verified'] === 1) {
             a_json(['ok' => true, 'already_verified' => true, 'message' => 'This email is already confirmed. You can sign in.']);
+        }
+        if ($purpose === 'login' && (int) $user['verified'] !== 1) {
+            a_error('Please confirm your email first.', 403, 'unverified');
         }
         if (a_otp_rate_limited($pdo, $email)) a_error('Too many codes requested. Please wait a few minutes.', 429, 'rate_limited');
 
@@ -660,6 +694,37 @@ switch ($action) {
                 'error' => ['message' => 'Please confirm your email first. We can resend the code.', 'type' => 'unverified', 'code' => 403],
             ], 403);
         }
+
+        // Password alone is never enough: every sign-in needs an emailed code.
+        if (a_otp_rate_limited($pdo, $email)) {
+            a_error('Too many sign-in codes requested. Please wait a few minutes.', 429, 'rate_limited');
+        }
+        $code = a_issue_otp($pdo, $email, 'login');
+        $sent = a_send_otp($email, $code, 'login');
+
+        a_json([
+            'ok' => true,
+            'requires_otp' => true,
+            'email' => $email,
+            'mail_sent' => $sent,
+            'message' => $sent
+                ? 'We emailed a sign-in code to ' . $email . '.'
+                : 'We could not send the email. Please tap resend.',
+        ]);
+    }
+
+    case 'login_verify': {
+        $pdo = a_conn();
+        $email = strtolower(a_str($in, 'email'));
+        $code = a_str($in, 'code');
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $code === '') a_error('Email and code are required.');
+
+        a_consume_otp($pdo, $email, 'login', $code);
+
+        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+        if (!$user) a_error('Account not found.', 404, 'not_found');
 
         $token = a_create_session($pdo, (int) $user['id']);
         $progress = a_progress_row($pdo, (int) $user['id']);

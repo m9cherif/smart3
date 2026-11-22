@@ -174,6 +174,7 @@ class AuthResult {
     this.error,
     this.message,
     this.requiresVerification = false,
+    this.requiresOtp = false,
     this.email,
     this.user,
     this.progress,
@@ -184,6 +185,9 @@ class AuthResult {
   final String? error;
   final String? message;
   final bool requiresVerification;
+
+  /// True when the password was correct and a sign-in code was emailed.
+  final bool requiresOtp;
   final String? email;
   final AuthUser? user;
   final CloudProgress? progress;
@@ -302,14 +306,26 @@ class AuthService {
     return result;
   }
 
-  /// Signs in with email + password.
+  /// Signs in with email + password. The server then emails a one-time code;
+  /// the session is only created by [loginVerify].
   Future<AuthResult> signIn({
     required String email,
     required String password,
   }) async {
-    final result = await _authAction('login', {
+    return _authAction('login', {
       'email': email.trim().toLowerCase(),
       'password': password,
+    });
+  }
+
+  /// Completes the two-factor sign-in with the emailed code.
+  Future<AuthResult> loginVerify({
+    required String email,
+    required String code,
+  }) async {
+    final result = await _authAction('login_verify', {
+      'email': email.trim().toLowerCase(),
+      'code': code.trim(),
     });
     if (result.ok) {
       await _persistSession();
@@ -474,6 +490,14 @@ class AuthService {
       );
     }
     final payload = res.body;
+    if (res.statusCode == 200 && payload['requires_otp'] == true) {
+      return AuthResult(
+        ok: true,
+        requiresOtp: true,
+        email: payload['email']?.toString() ?? body['email']?.toString(),
+        message: payload['message']?.toString(),
+      );
+    }
     if (res.statusCode == 200 && payload['ok'] == true && payload['token'] != null) {
       _applyPayload(payload);
       return AuthResult(

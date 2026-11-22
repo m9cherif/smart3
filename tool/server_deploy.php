@@ -5,7 +5,7 @@
 
 $root = '/home/u170282392/domains/smart.chrif.net/public_html';
 $base = 'https://raw.githubusercontent.com/m9cherif/smart3/master/site_smart/';
-$files = ['index.html', 'api.php', 'auth.php', 'db.php', 'config.php', '.htaccess', 'runtime/.htaccess'];
+$files = ['index.html', 'api.php', 'auth.php', 'db.php', 'config.php', 'ocr.php', '.htaccess', 'runtime/.htaccess'];
 
 @mkdir($root . '/runtime', 0755, true);
 
