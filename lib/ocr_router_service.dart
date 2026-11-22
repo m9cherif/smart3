@@ -39,9 +39,11 @@ class OcrRouterService {
     defaultValue: 'https://smart.chrif.net/ocr',
   );
 
-  /// Keep uploads small: better latency, less chance of a provider rejection.
-  static const int _maxUploadBytes = 4 * 1024 * 1024;
-  static const int _maxSide = 2200;
+  /// Keep uploads small: OCR.space's free tier rejects files over ~1 MB and
+  /// smaller images are faster to scan.
+  static const int _maxUploadBytes = 1000 * 1024;
+  static const int _maxSide = 2000;
+  static const int _shrinkThreshold = 900 * 1024;
 
   /// Extracts text from an image. Returns `null` when the router cannot help,
   /// so callers can try their own offline / AI fallback.
@@ -60,7 +62,7 @@ class OcrRouterService {
       if (bytes.isEmpty) return null;
 
       var mime = _mimeFor(filePath);
-      if (bytes.length > _maxUploadBytes) {
+      if (bytes.length > _shrinkThreshold) {
         final shrunk = await compute(_shrinkForUpload, bytes);
         if (shrunk != null) {
           bytes = shrunk;

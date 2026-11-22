@@ -25,11 +25,6 @@ error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 
-// Temporary diagnostics: append &diag=<token> to see the real error text.
-if (($_GET['diag'] ?? '') === 'ss-ocr-diag-1177') {
-    ini_set('display_errors', '1');
-}
-
 $CONFIG = require __DIR__ . '/config.php';
 
 header('Access-Control-Allow-Origin: *');

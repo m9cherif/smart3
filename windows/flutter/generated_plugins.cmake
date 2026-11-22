@@ -6,13 +6,9 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   flutter_timezone
   local_notifier
-  printing
   record_windows
   screen_retriever_windows
-  speech_to_text_windows
-  syncfusion_pdfviewer_windows
   tray_manager
-  url_launcher_windows
   window_manager
 )
 
