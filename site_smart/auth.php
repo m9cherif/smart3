@@ -544,7 +544,7 @@ function a_public_user(array $u): array
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $action = strtolower(trim((string) ($_GET['action'] ?? '')));
-if ($action === '' && preg_match('#/auth/([a-z]+)#', (string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), $m)) {
+if ($action === '' && preg_match('#/auth/([a-z_]+)#', (string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), $m)) {
     $action = $m[1];
 }
 $in = a_body();
