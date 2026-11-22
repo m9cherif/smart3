@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:smart_student_ai/database_service.dart';
+
 /// Base URL of the account API (the smart.chrif.net PHP backend).
 /// Override with `--dart-define=AUTH_BASE_URL=...` if needed.
 const String kAuthBaseUrl = String.fromEnvironment(
@@ -200,6 +202,11 @@ class AuthService {
   static const String _tokenKey = 'auth_token';
   static const String _userKey = 'auth_user';
   static const String _progressKey = 'auth_progress';
+  static const String _pendingPrefix = 'auth_pending_';
+
+  /// Shorter timeout for background sync, so an offline device fails fast
+  /// instead of blocking the UI for the full request timeout.
+  static const Duration _syncTimeout = Duration(seconds: 8);
 
   final _authStateController = StreamController<AuthUser?>.broadcast();
 
@@ -255,7 +262,10 @@ class AuthService {
 
     // Validate the cached token in the background; sign out if it is stale.
     if (_token != null) {
-      final refreshed = await _request('me', method: 'GET', silent: true);
+      // Push anything earned while offline before reading the server state.
+      await _flushPending();
+      final refreshed =
+          await _request('me', method: 'GET', silent: true, timeout: _syncTimeout);
       if (refreshed != null) {
         if (refreshed.statusCode == 401) {
           await logout(notifyServer: false);
@@ -337,12 +347,23 @@ class AuthService {
   }
 
   /// Signs out locally and invalidates the session on the server.
-  Future<void> logout({bool notifyServer = true}) async {
+  ///
+  /// Returns `false` when the device is offline (the server could not be
+  /// reached). In that case the session is kept so the user stays signed in and
+  /// never ends up logged out while unreachable.
+  Future<bool> logout({bool notifyServer = true}) async {
     if (notifyServer && _token != null) {
-      try {
-        await _request('logout', method: 'POST', body: const {});
-      } catch (_) {
-        // Best effort only.
+      // Push anything earned offline before the session is invalidated.
+      await _flushPending();
+      final res = await _request(
+        'logout',
+        method: 'POST',
+        body: const {},
+        timeout: _syncTimeout,
+      );
+      if (res == null) {
+        // No HTTP response at all: we are offline, so refuse to sign out.
+        return false;
       }
     }
     _token = null;
@@ -353,19 +374,34 @@ class AuthService {
     await prefs.remove(_userKey);
     await prefs.remove(_progressKey);
     _emit();
+    return true;
   }
 
   /// Refreshes the cached profile and progress from the server.
+  ///
+  /// Any XP earned while offline is pushed first, so the server (and the local
+  /// mirror) end up holding the complete, authoritative state.
   Future<void> refresh() async {
     if (_token == null) return;
-    final res = await _request('me', method: 'GET', silent: true);
-    if (res != null && res.statusCode == 200) {
+    await _flushPending();
+    final res =
+        await _request('me', method: 'GET', silent: true, timeout: _syncTimeout);
+    if (res == null) return;
+    if (res.statusCode == 401) {
+      await logout(notifyServer: false);
+      return;
+    }
+    if (res.statusCode == 200) {
       _applyPayload(res.body);
       _emit();
     }
   }
 
   /// Pushes an XP / activity delta to the cloud and returns the new snapshot.
+  ///
+  /// The delta is queued locally first: if the device is offline it stays
+  /// pending and is flushed on the next [refresh]. On success the server values
+  /// are mirrored into the local database.
   Future<CloudProgress?> pushProgress({
     int xpDelta = 0,
     int revisionDelta = 0,
@@ -374,37 +410,32 @@ class AuthService {
     String source = 'app',
   }) async {
     if (_token == null) return null;
+
+    // Accumulate everything the server has not confirmed yet.
+    final pending = await _loadPending();
+    pending['xp_delta'] = (pending['xp_delta'] as int) + xpDelta;
+    pending['revision_delta'] = (pending['revision_delta'] as int) + revisionDelta;
+    pending['dictation_delta'] =
+        (pending['dictation_delta'] as int) + dictationDelta;
+    if (bestScore > (pending['best_score'] as int)) {
+      pending['best_score'] = bestScore;
+    }
+
     final res = await _request('progress', method: 'POST', body: {
-      'xp_delta': xpDelta,
-      'revision_delta': revisionDelta,
-      'dictation_delta': dictationDelta,
-      'best_score': bestScore,
+      ...pending,
       'source': source,
     });
-    if (res == null || res.statusCode != 200) return null;
+    if (res == null || res.statusCode != 200) {
+      // Offline or refused: keep the deltas queued for the next sync.
+      await _savePending(pending);
+      return null;
+    }
+
+    // The server accepted everything we sent, so the queue is now empty.
+    await _savePending(_zeroPending());
     _applyPayload(res.body);
     _emit();
     return _progress;
-  }
-
-  /// Seeds the cloud copy from local values (used when the cloud is empty).
-  Future<void> seedFromLocal({
-    required int xp,
-    required int revisionCount,
-    required int dictationCount,
-    int bestScore = 0,
-  }) async {
-    if (_token == null) return;
-    final res = await _request('sync', method: 'POST', body: {
-      'xp': xp,
-      'revision_count': revisionCount,
-      'dictation_count': dictationCount,
-      'best_score': bestScore,
-    });
-    if (res != null && res.statusCode == 200) {
-      _applyPayload(res.body);
-      _emit();
-    }
   }
 
   /// Fetches the global leaderboard.
@@ -487,7 +518,11 @@ class AuthService {
     }
     final progressJson = payload['progress'];
     if (progressJson is Map<String, dynamic>) {
-      _progress = CloudProgress.fromJson(progressJson);
+      final progress = CloudProgress.fromJson(progressJson);
+      _progress = progress;
+      // Kept in step with the server so the device copy never shows another
+      // account's numbers while signed in.
+      unawaited(_mirrorProgressToLocal(progress));
     }
     final ach = payload['achievements'];
     if (ach is List) {
@@ -511,6 +546,8 @@ class AuthService {
     }
     if (_progress != null) {
       await prefs.setString(_progressKey, jsonEncode(_progressToJson(_progress!)));
+      // Make sure the device DB reflects this account before the UI reads it.
+      await _mirrorProgressToLocal(_progress!);
     }
     _emit();
   }
@@ -518,6 +555,93 @@ class AuthService {
   void _emit() {
     if (!_authStateController.isClosed) {
       _authStateController.add(_user);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* offline queue + local mirror                                       */
+  /* ------------------------------------------------------------------ */
+
+  /// Per-account key so queued deltas are never attributed to another user.
+  String? get _pendingKey => _user == null ? null : '$_pendingPrefix${_user!.id}';
+
+  Map<String, dynamic> _zeroPending() => <String, dynamic>{
+        'xp_delta': 0,
+        'revision_delta': 0,
+        'dictation_delta': 0,
+        'best_score': 0,
+      };
+
+  Future<Map<String, dynamic>> _loadPending() async {
+    final key = _pendingKey;
+    if (key == null) return _zeroPending();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null) return _zeroPending();
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return <String, dynamic>{
+          'xp_delta': (decoded['xp_delta'] as num?)?.toInt() ?? 0,
+          'revision_delta': (decoded['revision_delta'] as num?)?.toInt() ?? 0,
+          'dictation_delta': (decoded['dictation_delta'] as num?)?.toInt() ?? 0,
+          'best_score': (decoded['best_score'] as num?)?.toInt() ?? 0,
+        };
+      }
+    } catch (e) {
+      debugPrint('AuthService: could not read pending deltas: $e');
+    }
+    return _zeroPending();
+  }
+
+  Future<void> _savePending(Map<String, dynamic> pending) async {
+    final key = _pendingKey;
+    if (key == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final isZero = pending.values.every((v) => (v as num) == 0);
+    if (isZero) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, jsonEncode(pending));
+    }
+  }
+
+  /// Sends any deltas accumulated while offline.
+  ///
+  /// Returns `true` when nothing remains queued (either the queue was empty or
+  /// the server accepted it), `false` while the device is still offline.
+  Future<bool> _flushPending({String source = 'offline_sync'}) async {
+    if (_token == null || _user == null) return true;
+    final pending = await _loadPending();
+    if (pending.values.every((v) => (v as num) == 0)) return true;
+
+    final res = await _request(
+      'progress',
+      method: 'POST',
+      body: {...pending, 'source': source},
+      timeout: _syncTimeout,
+    );
+    if (res == null || res.statusCode != 200) return false;
+
+    await _savePending(_zeroPending());
+    _applyPayload(res.body);
+    _emit();
+    return true;
+  }
+
+  /// Copies the server values into the local database so the on-device copy
+  /// mirrors the signed-in account. Await it during sign-in so the device DB is
+  /// correct before the home screen reads it.
+  Future<void> _mirrorProgressToLocal(CloudProgress progress) async {
+    try {
+      await DatabaseService.instance.applyRemoteProgress(
+        xp: progress.xp,
+        level: progress.level,
+        revisionCount: progress.revisionCount,
+        dictationCount: progress.dictationCount,
+      );
+    } catch (e) {
+      debugPrint('AuthService: could not mirror progress locally: $e');
     }
   }
 
@@ -567,6 +691,7 @@ class AuthService {
     Map<String, dynamic>? body,
     Map<String, String>? query,
     bool silent = false,
+    Duration timeout = const Duration(seconds: 25),
   }) async {
     var uri = Uri.parse('$kAuthBaseUrl/$action');
     if (query != null && query.isNotEmpty) {
@@ -583,7 +708,6 @@ class AuthService {
 
     try {
       late http.Response response;
-      const timeout = Duration(seconds: 25);
       if (method == 'GET') {
         response = await http.get(uri, headers: headers).timeout(timeout);
       } else {

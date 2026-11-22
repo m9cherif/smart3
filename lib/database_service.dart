@@ -311,6 +311,38 @@ class DatabaseService {
     return _readStudentProgress(db);
   }
 
+  /// Overwrites the on-device progress row with the authoritative cloud values.
+  ///
+  /// The server owns XP / level while the account is signed in; the local
+  /// database is kept as a mirror so the UI (and any offline fallback) always
+  /// reflects the signed-in account rather than another user's device data.
+  Future<StudentProgress> applyRemoteProgress({
+    required int xp,
+    required int level,
+    required int revisionCount,
+    required int dictationCount,
+  }) async {
+    final db = await database;
+    await _ensureStudentProgressRow(db);
+
+    final updated = StudentProgress(
+      xp: xp,
+      level: level > 0 ? level : _levelForXp(xp),
+      revisionCount: revisionCount,
+      dictationCount: dictationCount,
+      updatedAt: DateTime.now(),
+    );
+
+    await db.update(
+      'student_progress',
+      updated.toMap(),
+      where: 'id = ?',
+      whereArgs: <Object>[1],
+    );
+
+    return updated;
+  }
+
   Future<ProgressAwardResult> recordRevisionAttempt({
     required String questionKey,
     required String subjectKey,

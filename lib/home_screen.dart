@@ -124,7 +124,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
     if (confirm ?? false) {
-      await AuthService.instance.logout();
+      final signedOut = await AuthService.instance.logout();
+      if (!signedOut && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You need an internet connection to sign out.'),
+          ),
+        );
+      }
     }
   }
 
@@ -518,47 +525,40 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _isLoadingProgress = true;
     });
 
+    // Show the on-device copy right away; it is also the offline fallback.
     try {
-      final progress = await DatabaseService.instance.getStudentProgress();
+      final local = await DatabaseService.instance.getStudentProgress();
       if (!mounted) {
         return;
       }
-
       setState(() {
-        _progress = progress;
+        _progress = local;
         _isLoadingProgress = false;
       });
-
-      _syncCloudProgress(progress);
     } catch (_) {
       if (!mounted) {
         return;
       }
-
       setState(() {
         _progress = null;
         _isLoadingProgress = false;
       });
     }
-  }
 
-  /// Mirrors the local XP/activity to the account backend and keeps the
-  /// home screen's streak / level chip in sync.
-  Future<void> _syncCloudProgress(StudentProgress local) async {
+    // Reconcile with the server in the background. When signed in the server is
+    // the source of truth, and refreshing mirrors its values into the local DB,
+    // so re-reading gives the authoritative XP / level for this account.
     final auth = AuthService.instance;
     if (!auth.isSignedIn) return;
+    await auth.refresh();
+    if (!mounted || !auth.isSignedIn) return;
     try {
-      await auth.seedFromLocal(
-        xp: local.xp,
-        revisionCount: local.revisionCount,
-        dictationCount: local.dictationCount,
-      );
-      await auth.refresh();
-      if (mounted) {
-        setState(() {
-          _cloudProgress = auth.progress;
-        });
-      }
+      final mirrored = await DatabaseService.instance.getStudentProgress();
+      if (!mounted) return;
+      setState(() {
+        _progress = mirrored;
+        _cloudProgress = auth.progress;
+      });
     } catch (e) {
       debugPrint('Sync cloud progress failed: $e');
     }
