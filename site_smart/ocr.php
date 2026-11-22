@@ -279,6 +279,9 @@ function o_ocrspace(string $dataUri, string $lang, int $engine, int $timeout): a
 /** Local Tesseract CLI, when the host happens to have it installed. */
 function o_tesseract(string $binary, string $bytes, string $lang, int $timeout): array
 {
+    if (!function_exists('shell_exec') || !is_callable('shell_exec')) {
+        return ['ok' => false, 'error' => 'shell_exec is disabled on this host', 'ms' => 0];
+    }
     $start = microtime(true);
     $tmp = tempnam(sys_get_temp_dir(), 'ocr_');
     if ($tmp === false) {
@@ -356,16 +359,26 @@ function o_providers(array $config): array
     ];
 
     $tesseract = null;
-    foreach (['tesseract', '/usr/bin/tesseract', '/usr/local/bin/tesseract'] as $candidate) {
-        if (strpos($candidate, '/') === false) {
-            $which = @shell_exec('command -v ' . escapeshellarg($candidate) . ' 2>/dev/null');
-            if (is_string($which) && trim($which) !== '') {
-                $tesseract = trim($which);
-                break;
+    // Shared hosts often disable shell functions. Guard before touching them:
+    // calling a disabled function is a fatal Error in PHP 8.
+    $canShell = function_exists('shell_exec') && is_callable('shell_exec')
+        && function_exists('escapeshellarg');
+    if ($canShell) {
+        try {
+            foreach (['tesseract', '/usr/bin/tesseract', '/usr/local/bin/tesseract'] as $candidate) {
+                if (strpos($candidate, '/') === false) {
+                    $which = @shell_exec('command -v ' . escapeshellarg($candidate) . ' 2>/dev/null');
+                    if (is_string($which) && trim($which) !== '') {
+                        $tesseract = trim($which);
+                        break;
+                    }
+                } elseif (@is_executable($candidate)) {
+                    $tesseract = $candidate;
+                    break;
+                }
             }
-        } elseif (@is_executable($candidate)) {
-            $tesseract = $candidate;
-            break;
+        } catch (Throwable $e) {
+            $tesseract = null;
         }
     }
     if ($tesseract !== null) {

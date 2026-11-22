@@ -451,6 +451,94 @@ ThemeData buildAppTheme(AppThemeSpec spec, AppBrightnessMode mode) {
       behavior: SnackBarBehavior.floating,
       backgroundColor: isDark ? colorScheme.surfaceContainerHighest : colorScheme.inverseSurface,
       contentTextStyle: TextStyle(color: isDark ? onSurface : colorScheme.onInverseSurface),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: colorScheme.primary,
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        foregroundColor: onSurface.withValues(alpha: 0.8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      titleTextStyle: TextStyle(
+        color: onSurface,
+        fontWeight: FontWeight.w800,
+        fontSize: 20,
+      ),
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      height: 68,
+      elevation: 0,
+      backgroundColor: surface,
+      indicatorColor: colorScheme.primary.withValues(alpha: isDark ? 0.28 : 0.14),
+      labelTextStyle: WidgetStatePropertyAll(
+        TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onSurface),
+      ),
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return IconThemeData(
+          size: 23,
+          color: selected ? colorScheme.primary : onSurface.withValues(alpha: 0.55),
+        );
+      }),
+    ),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: surface,
+      indicatorColor: colorScheme.primary.withValues(alpha: isDark ? 0.28 : 0.14),
+      selectedIconTheme: IconThemeData(color: colorScheme.primary, size: 24),
+      unselectedIconTheme:
+          IconThemeData(color: onSurface.withValues(alpha: 0.55), size: 23),
+      selectedLabelTextStyle:
+          TextStyle(color: colorScheme.primary, fontWeight: FontWeight.w700),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: colorScheme.primary.withValues(alpha: isDark ? 0.18 : 0.08),
+      selectedColor: colorScheme.primary.withValues(alpha: isDark ? 0.34 : 0.18),
+      side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.4)),
+      labelStyle: TextStyle(fontWeight: FontWeight.w600, color: onSurface),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    listTileTheme: ListTileThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      iconColor: colorScheme.primary,
+      titleTextStyle: TextStyle(
+        color: onSurface,
+        fontWeight: FontWeight.w600,
+        fontSize: 15,
+      ),
+      subtitleTextStyle: TextStyle(
+        color: onSurface.withValues(alpha: 0.62),
+        fontSize: 13,
+      ),
+    ),
+    dividerTheme: DividerThemeData(
+      color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+      thickness: 1,
+      space: 1,
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
     ),
     textTheme: base.textTheme
         .apply(bodyColor: onSurface, displayColor: onSurface)

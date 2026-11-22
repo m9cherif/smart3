@@ -149,38 +149,112 @@ class _LaunchLoadingScreen extends StatelessWidget {
       body: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: themeSpec.pageGradient,
           ),
         ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'logo.png',
-                width: 120,
-                height: 120,
-                errorBuilder: (context, error, stackTrace) => Icon(
-                  Icons.school_rounded,
-                  size: 80,
-                  color: colorScheme.primary,
-                ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -120,
+              right: -80,
+              child: _LaunchGlow(
+                color: themeSpec.primary.withValues(alpha: 0.18),
+                size: 340,
               ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    colorScheme.primary.withValues(alpha: 0.6),
+            ),
+            Positioned(
+              bottom: -140,
+              left: -100,
+              child: _LaunchGlow(
+                color: themeSpec.secondary.withValues(alpha: 0.14),
+                size: 380,
+              ),
+            ),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(34),
+                      boxShadow: [
+                        BoxShadow(
+                          color: themeSpec.primary.withValues(alpha: 0.16),
+                          blurRadius: 40,
+                          offset: const Offset(0, 16),
+                        ),
+                      ],
+                    ),
+                    child: Image.asset(
+                      'logo.png',
+                      width: 104,
+                      height: 104,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        Icons.school_rounded,
+                        size: 80,
+                        color: colorScheme.primary,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 26),
+                  Text(
+                    'Smart Student AI',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                      color: themeSpec.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Learn smarter, every day',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: colorScheme.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        colorScheme.primary.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LaunchGlow extends StatelessWidget {
+  const _LaunchGlow({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [color, color.withValues(alpha: 0)],
         ),
       ),
     );
