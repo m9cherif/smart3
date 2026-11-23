@@ -37,24 +37,79 @@ class _DictationScreenState extends State<DictationScreen> {
   bool _isProcessingImage = false;
   bool _isRecording = false;
   bool _isFromHub = false;
+  bool _isRefiningInitial = false;
   DictationAnalysis? _analysis;
   Future<String>? _currentOCRTask;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
-      _sourceText = widget.initialText!;
-      _manualTextController.text = widget.initialText!;
-      _isFromHub = true;
+    final initial = widget.initialText;
+    if (initial != null && initial.isNotEmpty) {
+      _sourceText = initial;
+      _manualTextController.text = initial;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _refineInitialPassage();
+      });
     }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (widget.initialText != null && widget.initialText!.isNotEmpty && _statusMessage.isEmpty) {
+    if (widget.initialText != null &&
+        widget.initialText!.isNotEmpty &&
+        _statusMessage.isEmpty &&
+        !_isRefiningInitial) {
       _statusMessage = AppStrings.of(context).dictationPassageLoaded;
+    }
+  }
+
+  /// Runs the AI passage selection for text handed over by the Learning Hub.
+  Future<void> _refineInitialPassage() async {
+    final strings = AppStrings.of(context);
+    if (_sourceText.trim().isEmpty) return;
+
+    setState(() {
+      _isRefiningInitial = true;
+      _statusMessage = strings.dictationChoosingPassage;
+    });
+
+    try {
+      final passage = await AIService.chooseDictationPassage(
+        _sourceText,
+        language: _languageCode(),
+      );
+      if (!mounted) return;
+
+      final choice = await _showPassagePreview(passage);
+      if (!mounted) return;
+
+      if (choice == _PassageChoice.edit) {
+        setState(() {
+          _sourceText = passage.passage;
+          _manualTextController.text = passage.passage;
+        });
+        await _openManualTextEntry();
+        return;
+      }
+
+      if (choice == _PassageChoice.proceed) {
+        setState(() {
+          _sourceText = passage.passage;
+          _manualTextController.text = passage.passage;
+          _statusMessage = strings.dictationPassageLoaded;
+        });
+      } else {
+        setState(() => _statusMessage = strings.dictationPassageLoaded);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _statusMessage = strings.dictationPassageLoaded);
+    } finally {
+      if (mounted) {
+        setState(() => _isRefiningInitial = false);
+      }
     }
   }
 
@@ -73,6 +128,13 @@ class _DictationScreenState extends State<DictationScreen> {
           .timeout(const Duration(seconds: 30), onTimeout: () => null);
 
       if (file == null || file.path.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = strings.dictationImagePickerFailed;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(strings.dictationImagePickerFailed)),
+        );
         return;
       }
 
@@ -130,14 +192,47 @@ class _DictationScreenState extends State<DictationScreen> {
               'doc',
               'docx',
             ],
+            withData: true,
           )
           .timeout(const Duration(seconds: 30), onTimeout: () => null);
 
       final file = result == null || result.files.isEmpty
           ? null
           : result.files.first;
-      final path = file?.path;
-      if (path == null || path.isEmpty) {
+
+      if (file == null) {
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = strings.dictationFilePickerFailed;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(strings.dictationFilePickerFailed)),
+        );
+        return;
+      }
+
+      var path = file.path ?? '';
+
+      // Android can hand back a content:// Uri that resolves to no real path.
+      // In that case fall back to the bytes and stage them in a temp file.
+      if ((path.isEmpty) && file.bytes != null) {
+        final safeName = file.name.isEmpty
+            ? 'picked_${DateTime.now().millisecondsSinceEpoch}'
+            : file.name;
+        final tempPath =
+            '${Directory.systemTemp.path}${Platform.pathSeparator}$safeName';
+        await File(tempPath).writeAsBytes(file.bytes!, flush: true);
+        path = tempPath;
+      }
+
+      if (path.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = strings.dictationFilePickerFailed;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(strings.dictationFilePickerFailed)),
+        );
         return;
       }
 
@@ -677,7 +772,7 @@ class _DictationScreenState extends State<DictationScreen> {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  if (_isProcessingImage || _isRecording) ...[
+                  if (_isProcessingImage || _isRecording || _isRefiningInitial) ...[
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -706,28 +801,28 @@ class _DictationScreenState extends State<DictationScreen> {
                       runSpacing: 10,
                       children: [
                         ElevatedButton.icon(
-                          onPressed: _isProcessingImage
+                          onPressed: (_isProcessingImage || _isRefiningInitial)
                               ? null
                               : _openManualTextEntry,
                           icon: const Icon(Icons.edit_note_rounded),
                           label: Text(strings.dictationManualEntry),
                         ),
                         OutlinedButton.icon(
-                          onPressed: _isProcessingImage
+                          onPressed: (_isProcessingImage || _isRefiningInitial)
                               ? null
                               : _loadTextFromFile,
                           icon: const Icon(Icons.folder_open_rounded),
                           label: Text(strings.dictationFile),
                         ),
                         OutlinedButton.icon(
-                          onPressed: _isProcessingImage
+                          onPressed: (_isProcessingImage || _isRefiningInitial)
                               ? null
                               : () => _loadTextFromImage(ImageSource.camera),
                           icon: const Icon(Icons.photo_camera_outlined),
                           label: Text(strings.dictationCamera),
                         ),
                         OutlinedButton.icon(
-                          onPressed: _isProcessingImage
+                          onPressed: (_isProcessingImage || _isRefiningInitial)
                               ? null
                               : () => _loadTextFromImage(ImageSource.gallery),
                           icon: const Icon(Icons.photo_library_outlined),
@@ -738,7 +833,11 @@ class _DictationScreenState extends State<DictationScreen> {
                   ],
                   const SizedBox(height: 14),
                   FilledButton.tonalIcon(
-                    onPressed: _isRecording ? _stopRecording : _recordSpeech,
+                    onPressed: _isRecording
+                        ? _stopRecording
+                        : ((_isProcessingImage || _isRefiningInitial)
+                              ? null
+                              : _recordSpeech),
                     icon: Icon(
                       _isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
                     ),

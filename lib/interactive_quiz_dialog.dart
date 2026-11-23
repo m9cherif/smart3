@@ -105,7 +105,7 @@ class _InteractiveQuizDialogState extends State<InteractiveQuizDialog> {
 
             // Question
             Expanded(
-              child: Container(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

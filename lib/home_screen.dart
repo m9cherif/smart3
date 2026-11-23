@@ -203,58 +203,93 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _pickFile() async {
     final strings = AppStrings.of(context);
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['txt', 'pdf', 'doc', 'docx'],
-      );
+      final result = await FilePicker.platform
+          .pickFiles(
+            type: FileType.custom,
+            allowedExtensions: ['txt', 'pdf', 'doc', 'docx'],
+            withData: true,
+          )
+          .timeout(const Duration(seconds: 30), onTimeout: () => null);
 
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
+      final picked = (result == null || result.files.isEmpty)
+          ? null
+          : result.files.single;
 
+      if (picked == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No file selected.')),
+        );
+        return;
+      }
+
+      var path = picked.path ?? '';
+      if (path.isEmpty && picked.bytes != null) {
+        final safeName = picked.name.isEmpty
+            ? 'picked_${DateTime.now().millisecondsSinceEpoch}'
+            : picked.name;
+        final tempPath =
+            '${Directory.systemTemp.path}${Platform.pathSeparator}$safeName';
+        await File(tempPath).writeAsBytes(picked.bytes!, flush: true);
+        path = tempPath;
+      }
+
+      if (path.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read the selected file.')),
+        );
+        return;
+      }
+
+      final file = File(path);
+
+      setState(() {
+        _isProcessingPDF = true;
+        _inputTextController.clear();
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(strings.hubProcessingProgress(file.path.split('/').last)),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      try {
+        // Extract text from the file (PDF or text)
+        final text = await AIService.extractTextFromFile(file);
+
+        if (!mounted) return;
         setState(() {
-          _isProcessingPDF = true;
-          _inputTextController.clear();
+          _inputTextController.text = text;
+          _isProcessingPDF = false;
         });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(strings.hubProcessingProgress(file.path.split('/').last)),
-              duration: const Duration(seconds: 2),
+              content: Text(strings.hubDetectionSuccess),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _isProcessingPDF = false;
+        });
 
-        try {
-          // Extract text from the file (PDF or text)
-          final text = await AIService.extractTextFromFile(file);
-
-          setState(() {
-            _inputTextController.text = text;
-            _isProcessingPDF = false;
-          });
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(strings.hubDetectionSuccess),
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-        } catch (e) {
-          setState(() {
-            _isProcessingPDF = false;
-          });
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error extracting text: $e')),
-            );
-          }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error extracting text: $e')),
+          );
         }
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isProcessingPDF = false;
       });
@@ -270,13 +305,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _pickImage(ImageSource source) async {
     final strings = AppStrings.of(context);
     try {
-      final image = await _imagePicker.pickImage(source: source);
+      final image = await _imagePicker
+          .pickImage(source: source)
+          .timeout(const Duration(seconds: 30), onTimeout: () => null);
       if (image != null) {
         setState(() {
           _isProcessingImage = true;
         });
 
         final text = await _ocrService.readText(image.path);
+        if (!mounted) return;
         setState(() {
           _inputTextController.text = text;
           _isProcessingImage = false;
@@ -287,8 +325,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             SnackBar(content: Text(strings.hubImageSuccess)),
           );
         }
+      } else if (mounted) {
+        setState(() {
+          _isProcessingImage = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Image selection was cancelled or blocked.')),
+        );
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isProcessingImage = false;
       });
@@ -360,6 +406,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             SnackBar(content: Text(strings.hubSpeakSuccess)),
           );
         }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              text.startsWith('Error') ? text : strings.hubSpeakEmpty,
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -1356,6 +1410,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(height: 24),
+              // Revision Coach entry
+              _FeatureCard(
+                entry: features[1],
+                onTap: () => _openModule(features[1].page),
+              ),
               // Level and XP Section
               if (_isLoadingProgress)
                 Card(

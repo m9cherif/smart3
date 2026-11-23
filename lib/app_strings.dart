@@ -878,6 +878,12 @@ class AppStrings {
     ar: 'تم نسخ الكلام بنجاح',
   );
 
+  String get hubSpeakEmpty => _pick(
+    en: 'No speech detected. Please try again.',
+    fr: 'Aucune parole détectée. Réessaie.',
+    ar: 'لم يتم اكتشاف كلام. حاول مرة أخرى.',
+  );
+
   String get hubCancel => _pick(
     en: 'Cancel',
     fr: 'Annuler',
