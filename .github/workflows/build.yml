@@ -1,0 +1,71 @@
+name: Flutter builds
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: android
+            build_command: flutter build apk --release
+            artifact_path: build/app/outputs/flutter-apk/app-release.apk
+            artifact_name: smart3-android-release
+          - os: ubuntu-latest
+            target: linux
+            build_command: flutter build linux --release
+            artifact_path: build/linux/x64/release/bundle
+            artifact_name: smart3-linux-x64-release
+          - os: windows-latest
+            target: windows
+            build_command: flutter build windows --release
+            artifact_path: build/windows/x64/runner/Release
+            artifact_name: smart3-windows-x64-release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        if: matrix.target == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Linux desktop dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.50.1'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build
+        run: ${{ matrix.build_command }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
