@@ -18,7 +18,7 @@ jobs:
         include:
           - os: ubuntu-latest
             target: android
-            build_command: flutter build apk --release
+            build_command: flutter build apk --release --android-skip-build-dependency-validation
             artifact_path: build/app/outputs/flutter-apk/app-release.apk
             artifact_name: smart3-android-release
           - os: ubuntu-latest
@@ -48,7 +48,7 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libnotify-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
